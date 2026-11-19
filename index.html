@@ -148,7 +148,8 @@ const AI_PROMPT = `Нижче мій план у форматі .plan. Прав�
 - "> текст" нотатка. "# текст" коментар. "habits: А, Б" — звички, виконані в день (назви з @habits). Поля через " | " (ціль | до дата | готово: критерій).
 - Не більше 3 "!" на день. Плануй 60–70% часу. Переносячи задачу: старий рядок [>], новий [ ] в іншому дні. Минулі дні та незнайомі рядки не видаляй.
 - Гроші: "@money YYYY-MM", рядок "YYYY-MM-DD -350.40 UAH Категорія | опис" (мінус витрата, плюс дохід, валюта 3 літери). З чека — один рядок на категорію, в секцію місяця дати чека.
-- "@budget YYYY-MM": "Категорія 6000 UAH". "@rates": "base UAH", "USD 41.5" (1 USD у базовій). "@debts": "[ ] Назва | 500 USD | 20% | до 2027-01-01", платежі під ним "  YYYY-MM-DD 100 USD"; "мені винні" — поле для боргу мені. Ціна цілі: поле "ціна: 100 USD".
+- "@budget YYYY-MM": "Категорія 6000 UAH". "@rates": "base UAH", "USD 41.5" (1 USD у базовій). "@debts": "[ ] Назва | 500 USD | 20% (річних) або 3.5% міс | до 2027-01-01 | план: 100/міс", платежі під ним "  YYYY-MM-DD 100 USD", відсотки "  YYYY-MM-DD +80 USD відсотки"; "мені винні" — поле для боргу мені. Ціна цілі: поле "ціна: 100 USD".
+- "@accounts": "Назва | 120 EUR | станом YYYY-MM-DD", поле "кредит" для кредитного ліміту. "@bills": "[ ] Назва | 20 EUR | щомісяця 25" або "| кожні 31 дн з YYYY-MM-DD" або "| разово YYYY-MM-DD"; поля "кат: Категорія", "опційно", "інфо".
 Поверни ПОВНИЙ оновлений файл одним блоком коду, без пояснень усередині.
 
 Моє завдання: `;
@@ -844,7 +845,11 @@ function viewDay() {
 	const habits = habitList();
 	const doneHabits = new Set(items.filter(i => i.el.kind === "habits").flatMap(i => i.el.names));
 	const weekGoals = sectionItems("week", isoWeek(d)).filter(i => i.el.kind === "task" && i.el.state === "open" && !i.el.sub);
+	const dueSoon = upcomingBills(d, 2);
+	const R = getRates();
+	const finnish = /android/i.test(navigator.userAgent) && habits.some(h => /^фінськ/i.test(h));
 	return `
+		${dueSoon.length ? `<section class="block" style="border-color:var(--warn)"><h2>Платежі найближчими днями</h2>${dueSoon.map(b => billRow(b, R)).join("")}</section>` : ""}
 		<section class="block">
 			<h2>Головні <span>${mains.length > 3 ? '<span class="warn">більше 3</span>' : `${mains.length}/3`}</span></h2>
 			${renderItems(mains) || '<div class="hint">1–3 речі, які зроблять день корисним. Почни з «!»</div>'}
@@ -857,7 +862,7 @@ function viewDay() {
 		</section>
 		${habits.length ? `<section class="block"><h2>Звички</h2><div class="habits">
 			${habits.map(h => `<button data-habit="${esc(h)}" class="${doneHabits.has(h) ? "on" : ""}">${esc(h)}</button>`).join("")}
-		</div></section>` : ""}
+		</div>${finnish ? `<div class="row"><a href="intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=com.microsprint.srs;end"><button type="button">Відкрити Micro-Sprint</button></a></div>` : ""}</section>` : ""}
 		<section class="block">
 			<h2>Нотатки</h2>
 			${renderItems(notes)}
@@ -1040,7 +1045,7 @@ function viewSync() {
    ============================================================ */
 
 const MONEY_RE = /^(\d{4}-\d{2}-\d{2})\s+([+-]?\d+(?:[.,]\d+)?)\s+([A-Z]{3})\s*(.*)$/;
-const PAYMENT_RE = /^\s+(\d{4}-\d{2}-\d{2})\s+(\d+(?:[.,]\d+)?)\s*([A-Z]{3})?\s*$/;
+const PAYMENT_RE = /^\s+(\d{4}-\d{2}-\d{2})\s+([+]?\d+(?:[.,]\d+)?)\s*([A-Z]{3})?\s*(.*)$/;  // "+" = interest added to the debt
 const BUDGET_RE = /^(.+?)\s+(\d+(?:[.,]\d+)?)(?:\s+([A-Z]{3}))?\s*$/;
 const AMOUNT_FIELD_RE = /^(\d+(?:[.,]\d+)?)\s*([A-Z]{3})$/;
 const PRICE_FIELD_RE = /^ціна:\s*(\d+(?:[.,]\d+)?)\s*([A-Z]{3})?$/i;
@@ -1159,27 +1164,178 @@ function listDebts() {
 		const el = parseLine(line);
 		if (el.kind === "task" && !el.sub) {
 			const amountField = el.fields.map(f => f.match(AMOUNT_FIELD_RE)).find(Boolean);
-			const rateField = el.fields.map(f => f.match(/^(\d+(?:[.,]\d+)?)\s*%/)).find(Boolean);
+			const rateField = el.fields.find(f => /^\d+(?:[.,]\d+)?\s*%/.test(f));
 			const dueField = el.fields.map(f => f.match(DUE_FIELD_RE)).find(Boolean);
+			const planField = el.fields.map(f => f.match(/^план:\s*(\d+(?:[.,]\d+)?)/i)).find(Boolean);
 			cur = {
 				idx: i, lastIdx: i, el, name: el.text,
 				total: amountField ? num(amountField[1]) : 0,
 				cur: amountField ? amountField[2] : getRates().base,
-				rate: rateField ? num(rateField[1]) : null,
+				rate: rateField ? num(rateField.match(/^(\d+(?:[.,]\d+)?)/)[1]) : null,
+				rateMonthly: rateField ? /міс/i.test(rateField) : false,
+				plan: planField ? num(planField[1]) : null,
 				due: dueField ? dueField[1] : null,
 				receivable: el.fields.some(f => /мені винні/i.test(f)),
 				paid: 0,
+				accrued: 0,
 			};
 			out.push(cur);
 		} else if (cur && PAYMENT_RE.test(line)) {
-			cur.paid += num(line.match(PAYMENT_RE)[2]);
+			const v = line.match(PAYMENT_RE)[2];
+			if (v.startsWith("+")) cur.accrued += num(v.slice(1));
+			else cur.paid += num(v);
 			cur.lastIdx = i;
 		} else if (el.kind !== "blank") {
 			cur = null;
 		}
 	}
-	for (const d of out) d.remaining = Math.max(0, d.total - d.paid);
+	for (const d of out) d.remaining = Math.max(0, d.total + d.accrued - d.paid);
 	return out;
+}
+
+/** Monthly interest rate as a fraction ("3.5% міс" → 0.035, "42%" yearly → 0.035). */
+function monthlyRate(d) {
+	if (d.rate === null) return 0;
+	return d.rateMonthly ? d.rate / 100 : d.rate / 100 / 12;
+}
+
+/** Forecast for a debt: interest per month, growth without payments, payoff options. */
+function debtForecast(d) {
+	const r = monthlyRate(d), B = d.remaining;
+	if (!(r > 0) || !(B > 0)) return null;
+	const grow = n => B * Math.pow(1 + r, n);
+	const payFor = n => B * r / (1 - Math.pow(1 + r, -n));       // annuity payment that closes the debt in n months
+	const out = { interest: B * r, in6: grow(6), in12: grow(12), close: [6, 12, 24].map(n => ({ n, pay: payFor(n), extra: payFor(n) * n - B })) };
+	if (d.plan) {
+		if (d.plan <= B * r) out.plan = { ok: false };
+		else {
+			const n = Math.ceil(-Math.log(1 - r * B / d.plan) / Math.log(1 + r));
+			const end = new Date(); end.setMonth(end.getMonth() + n);
+			out.plan = { ok: true, n, extra: Math.max(0, d.plan * n - B), end: monthId(end) };
+		}
+	}
+	return out;
+}
+
+/** Account balances from @accounts: "Назва | 120 EUR | станом YYYY-MM-DD", "| кредит" = credit limit (not own money). */
+function listAccounts() {
+	const out = [];
+	for (const { idx, el } of sectionItems("accounts")) {
+		if (el.kind !== "raw") continue;
+		const parts = el.text.split(" | ").map(s => s.trim());
+		const amount = parts.map(p => p.match(AMOUNT_FIELD_RE)).find(Boolean);
+		if (!amount) continue;
+		const asOf = (parts.map(p => p.match(/^станом\s+(\d{4}-\d{2}-\d{2})$/)).find(Boolean) || [])[1] || null;
+		out.push({ idx, name: parts[0], amount: num(amount[1]), cur: amount[2], credit: parts.some(p => /^кредит/i.test(p)), asOf });
+	}
+	return out;
+}
+
+/** Own money now ≈ account balances + every transaction recorded after the latest balance date. */
+function moneyNow(R) {
+	const acc = listAccounts().filter(a => !a.credit);
+	if (!acc.length) return null;
+	const asOf = acc.map(a => a.asOf).filter(Boolean).sort().pop() || null;
+	let total = 0, unknown = new Set();
+	const add = (v, c) => { const x = toBase(v, c, R); if (x === null) unknown.add(c); else total += x; };
+	for (const a of acc) add(a.amount, a.cur);
+	if (asOf) {
+		for (const s of listSections().filter(s => s.type === "money")) {
+			for (let i = s.start + 1; i < s.end; i++) {
+				const t = parseMoney(state.lines[i]);
+				if (t && t.date > asOf) add(t.amount, t.cur);
+			}
+		}
+	}
+	return { total, asOf, unknown: [...unknown] };
+}
+
+/* Payment calendar (@bills): "[ ] Назва | 20 EUR | щомісяця 25", "| кожні 31 дн з 2026-11-10",
+   "| разово 2026-12-11"; flags "опційно" (only if money allows) and "інфо" (bank event, nothing to pay). */
+
+/** Parse @bills into schedule objects. */
+function listBills() {
+	const out = [];
+	for (const { idx, el } of sectionItems("bills")) {
+		if (el.kind !== "task" || el.sub || el.state === "dropped") continue;
+		const f = el.fields;
+		const amount = f.map(x => x.match(AMOUNT_FIELD_RE)).find(Boolean);
+		const monthly = f.map(x => x.match(/^щомісяця\s+(\d{1,2})$/)).find(Boolean);
+		const every = f.map(x => x.match(/^кожні\s+(\d+)\s*дн\S*\s+з\s+(\d{4}-\d{2}-\d{2})$/)).find(Boolean);
+		const once = f.map(x => x.match(/^разово\s+(\d{4}-\d{2}-\d{2})$/)).find(Boolean);
+		const cat = (f.map(x => x.match(/^кат:\s*(.+)$/)).find(Boolean) || [])[1];
+		if (!monthly && !every && !once) continue;
+		out.push({
+			idx, el, name: el.text,
+			amount: amount ? num(amount[1]) : null, cur: amount ? amount[2] : null,
+			monthly: monthly ? Number(monthly[1]) : null,
+			every: every ? { days: Number(every[1]), from: every[2] } : null,
+			once: once ? once[1] : null,
+			optional: f.some(x => /^опційно/i.test(x)),
+			info: f.some(x => /^інфо/i.test(x)),
+			cat: cat ? cat.trim() : "Платежі",
+		});
+	}
+	return out;
+}
+
+/** Due dates (YYYY-MM-DD) of a bill between two dates, inclusive. */
+function billDates(b, fromId, toId) {
+	const out = [];
+	const from = parseDate(fromId), to = parseDate(toId);
+	if (b.once) { if (b.once >= fromId && b.once <= toId) out.push(b.once); return out; }
+	if (b.monthly) {
+		for (let d = new Date(from.getFullYear(), from.getMonth(), 1, 12); d <= to; d.setMonth(d.getMonth() + 1)) {
+			const last = new Date(d.getFullYear(), d.getMonth() + 1, 0).getDate();
+			const id = isoDate(new Date(d.getFullYear(), d.getMonth(), Math.min(b.monthly, last), 12));
+			if (id >= fromId && id <= toId) out.push(id);
+		}
+		return out;
+	}
+	let d = parseDate(b.every.from);
+	while (isoDate(d) < fromId) d = addDays(d, b.every.days);
+	while (d <= to) { out.push(isoDate(d)); d = addDays(d, b.every.days); }
+	return out;
+}
+
+/** Upcoming bill occurrences in the next `days` days from a date, sorted. */
+function upcomingBills(fromDate, days) {
+	const fromId = isoDate(fromDate), toId = isoDate(addDays(fromDate, days));
+	return listBills().flatMap(b => billDates(b, fromId, toId).map(date => ({ ...b, date }))).sort((a, b) => a.date < b.date ? -1 : 1);
+}
+
+/** One row of the payment calendar. */
+function billRow(b, R) {
+	const d = parseDate(b.date);
+	const left = Math.round((parseDate(b.date) - parseDate(isoDate(new Date()))) / 86400000);
+	const when = left === 0 ? "сьогодні" : left === 1 ? "завтра" : left < 0 ? "прострочено" : `через ${left} дн`;
+	return `<div class="tx" data-bill="${b.idx}" data-billdate="${b.date}">
+		<span class="d">${d.getDate()}.${String(d.getMonth() + 1).padStart(2, "0")}</span>
+		<span class="w">${esc(b.name)} ${b.optional ? '<span class="chip">опційно</span>' : ""}${b.info ? '<span class="chip">інфо</span>' : ""}<br><span class="hint ${left <= 2 ? "warn" : ""}">${when}</span></span>
+		<span class="a">${b.amount !== null ? fmt(b.amount, b.cur === R.base ? "" : b.cur) : b.info ? "" : "сума ?"}</span></div>`;
+}
+
+/** Tap on a bill: record the payment as an expense (amount editable). */
+async function payBill(idx, date) {
+	const b = listBills().find(x => x.idx === idx);
+	if (!b) return;
+	if (b.info) return toast("Це нагадування, платити нічого не треба");
+	const R = getRates();
+	const res = await editSheet(`${b.name} · ${date}`, b.amount !== null ? `${fileNum(b.amount)} ${b.cur}` : "",
+		[["pay", "Записати оплату"], ["edit", "Редагувати рядок"]], `сума, напр. 19.90 ${R.base}`);
+	if (!res) return;
+	if (res.act === "edit") {
+		const e2 = await editSheet("Рядок платежу", state.lines[idx], [["save", "Зберегти"], ["delete", "Видалити"]]);
+		if (!e2) return;
+		if (e2.act === "delete") return mutate(() => state.lines.splice(idx, 1));
+		if (parseLine(e2.value).kind === "task") mutate(() => { state.lines[idx] = e2.value.trim(); });
+		return;
+	}
+	const m = res.value.trim().match(/^(\d+(?:[.,]\d+)?)\s*([A-Za-z]{3})?$/);
+	if (!m) return toast("Вкажи суму, напр. 19.90");
+	const today = isoDate(new Date());
+	mutate(() => appendToSection("money", monthId(new Date()), moneyToLine({ date: today, amount: -num(m[1]), cur: (m[2] || b.cur || R.base).toUpperCase(), cat: b.cat, note: b.name })));
+	toast("Оплату записано");
 }
 
 /** Goals (and sub-goals) with a "ціна:" field: what must be saved and by when. */
@@ -1260,7 +1416,7 @@ async function debtActions(idx) {
 	const d = listDebts().find(x => x.idx === idx);
 	if (!d) return;
 	const res = await editSheet(`${d.name}: лишилось ${fmt(d.remaining, d.cur)}`, "",
-		[["pay", "Записати платіж"], ["edit", "Редагувати рядок"], ["delete", "Видалити борг"]], `сума платежу, ${d.cur}`);
+		[["pay", "Записати"], ["edit", "Редагувати рядок"], ["delete", "Видалити борг"]], `платіж, ${d.cur}; «+сума» — нараховані відсотки`);
 	if (!res) return;
 	if (res.act === "edit") {
 		const e2 = await editSheet("Рядок боргу", state.lines[idx], [["save", "Зберегти"]]);
@@ -1271,9 +1427,15 @@ async function debtActions(idx) {
 		if (!confirm(`Видалити «${d.name}» разом із платежами?`)) return;
 		return mutate(() => state.lines.splice(d.idx, d.lastIdx - d.idx + 1));
 	}
-	const amount = num(res.value.trim());
+	const raw = res.value.trim();
+	const isInterest = raw.startsWith("+");
+	const amount = num(raw.replace(/^\+/, ""));
 	if (!(amount > 0)) return toast("Вкажи суму платежу");
 	const today = isoDate(new Date());
+	if (isInterest) {
+		mutate(() => state.lines.splice(d.lastIdx + 1, 0, `  ${today} +${fileNum(amount)} ${d.cur} відсотки`));
+		return toast(`Борг виріс до ${fmt(d.remaining + amount, d.cur)}`);
+	}
 	mutate(() => {
 		state.lines.splice(d.lastIdx + 1, 0, `  ${today} ${fileNum(amount)} ${d.cur}`);
 		if (d.remaining - amount <= 0.005) state.lines[d.idx] = taskToLine({ ...d.el, state: "done" });
@@ -1299,6 +1461,10 @@ function submitMoneyForm(form) {
 		const m = value.match(BUDGET_RE);
 		if (!m) return toast("Формат: Їжа 6000");
 		mutate(() => { ensureOwnBudget(mid); appendToSection("budget", mid, `${m[1].trim()} ${fileNum(num(m[2]))}${m[3] ? " " + m[3] : ""}`); });
+	} else if (kind === "bill") {
+		const t = taskFromInput(value);
+		if (!t.fields.some(f => /^(щомісяця\s+\d|кожні\s+\d|разово\s+\d)/.test(f))) return toast("Додай розклад: щомісяця 25 / кожні 31 дн з 2026-11-10 / разово 2026-12-11");
+		mutate(() => appendToSection("bills", "", taskToLine(t)));
 	} else if (kind === "debt") {
 		const t = taskFromInput(value);
 		if (!t.fields.some(f => AMOUNT_FIELD_RE.test(f))) return toast("Формат: Назва | 500 USD | 20% | до 2027-01-01");
@@ -1335,7 +1501,7 @@ async function updateRates() {
 			if (!sectionItems("rates").some(i => /^base\s/i.test(state.lines[i.idx].trim()))) appendToSection("rates", "", `base ${R.base}`);
 			for (const c of [...used].sort()) {
 				if (!data.rates[c]) { missing.push(c); continue; }
-				appendToSection("rates", "", `${c} ${(1 / data.rates[c]).toFixed(4)}`);
+				appendToSection("rates", "", `${c} ${(1 / data.rates[c]).toPrecision(5)}`);
 			}
 			appendToSection("rates", "", `# курси оновлено ${isoDate(new Date())}, open.er-api.com`);
 		});
@@ -1385,26 +1551,59 @@ function viewMoney() {
 	const debts = listDebts();
 	const open = debts.filter(x => x.remaining > 0 && x.el.state !== "done");
 	const owe = open.filter(x => !x.receivable), owed = open.filter(x => x.receivable);
-	const first = [...owe].filter(x => x.rate !== null).sort((a, b) => b.rate - a.rate)[0];
-	const debtRow = x => `<div class="daylink" data-debt="${x.idx}" style="display:block">
+	const first = owe.length > 1 ? [...owe].filter(x => monthlyRate(x) > 0).sort((a, b) => monthlyRate(b) - monthlyRate(a))[0] : null;
+	const debtRow = x => {
+		const f = debtForecast(x);
+		const rateText = x.rate === null ? "" : x.rateMonthly ? `${x.rate}% на місяць (≈ ${fmt(x.rate * 12)}% річних)` : `${x.rate}% річних`;
+		return `<div class="daylink" data-debt="${x.idx}" style="display:block">
 		<div style="display:flex;justify-content:space-between;gap:8px"><span>${esc(x.name)}${x === first ? ' <span class="chip" style="background:var(--warn-soft);color:var(--warn)">гасити першим</span>' : ""}</span>
 		<span class="hint">${fmt(x.remaining, x.cur)}</span></div>
-		<div class="hint">${[x.rate !== null ? x.rate + "% річних" : "", x.due ? "до " + x.due : "", `сплачено ${fmt(x.paid)} з ${fmt(x.total, x.cur)}`].filter(Boolean).join(" · ")}</div>
-		<div class="bar"><i style="width:${x.total ? Math.round(x.paid / x.total * 100) : 0}%"></i></div></div>`;
+		<div class="hint">${[rateText, x.due ? "до " + x.due : "", `сплачено ${fmt(x.paid)}`, x.accrued ? `відсотків додано ${fmt(x.accrued)}` : ""].filter(Boolean).join(" · ")}</div>
+		<div class="bar"><i style="width:${x.total + x.accrued ? Math.round(x.paid / (x.total + x.accrued) * 100) : 0}%"></i></div>
+		${f && !x.receivable ? `<div class="hint" style="margin-top:6px">
+			<b>Відсотки ≈ ${fmt(f.interest, x.cur)} на місяць.</b> Платиш менше — борг росте.<br>
+			Без платежів: через 6 міс ≈ ${fmt(f.in6)}, через 12 ≈ ${fmt(f.in12, x.cur)}.<br>
+			Закрити: ${f.close.map(c => `за ${c.n} міс — ${fmt(c.pay)}/міс (переплата ${fmt(c.extra)})`).join("; ")}.
+			${f.plan ? (f.plan.ok ? `<br>Твій план ${fmt(x.plan)}/міс: закриється за ${f.plan.n} міс (≈ ${f.plan.end}), переплата ≈ ${fmt(f.plan.extra, x.cur)}.`
+				: `<br><span class="warn">План ${fmt(x.plan)}/міс менший за відсотки — борг росте.</span>`) : ""}
+		</div>` : ""}</div>`;
+	};
 	const oweTotal = owe.reduce((s, x) => s + B(x.remaining, x.cur), 0);
 
 	const costs = goalCosts();
 	const perMonth = costs.reduce((s, c) => s + (c.months ? B(c.price, c.cur) / c.months : 0), 0);
 
 	const rateList = Object.entries(R.r).filter(([c]) => c !== R.base).map(([c, v]) => `${c} ${fmt(v)}`).join(" · ");
+	const now = moneyNow(R);
+	const accounts = listAccounts();
+	const creditFree = accounts.filter(a => a.credit).reduce((s, a) => s + B(a.amount, a.cur), 0);
+	const monthNeed = budgetFor(monthId(new Date())).items.reduce((s, i) => s + B(i.limit, i.cur || R.base), 0);
+	const runway = now && monthNeed > 0 ? now.total / monthNeed : null;
+	const bills = upcomingBills(new Date(), 45);
+	const bills30 = upcomingBills(new Date(), 30).filter(b => !b.info && !b.optional && b.amount !== null).reduce((s, b) => s + B(b.amount, b.cur), 0);
 	return `
+		${now ? `<section class="block">
+			<div class="kpis" style="grid-template-columns:1fr 1fr">
+				<div><span>Мої гроші зараз</span><b class="${now.total < 0 ? "warn" : ""}">${fmt(now.total)} ${R.base}</b></div>
+				<div><span>Вистачить при бюджеті</span><b class="${runway !== null && runway < 2 ? "warn" : ""}">${runway === null ? "—" : runway >= 24 ? "24+ міс" : `≈ ${fmt(runway)} міс`}</b></div>
+			</div>
+			<div class="hint" style="margin-top:6px">${accounts.map(a => `${esc(a.name)} ${fmt(a.amount, a.cur)}${a.credit ? " (кредит)" : ""}`).join(" · ")}
+				${now.asOf ? ` · станом ${now.asOf}, далі за записами` : ""}${monthNeed ? ` · бюджет ${fmt(monthNeed)}/міс` : " · задай бюджет, щоб бачити запас"}
+				${creditFree ? `<br>Кредитний ліміт ${fmt(creditFree)} ${R.base} не рахується як твої гроші.` : ""}
+				${now.unknown.length ? `<br><span class="warn">Немає курсу: ${esc(now.unknown.join(", "))}</span>` : ""}</div>
+		</section>` : ""}
+		<section class="block">
+			<h2>Платежі на 45 днів <span>${bills30 ? `30 днів: ${fmt(bills30)} ${R.base}` : ""}</span></h2>
+			${bills.map(b => billRow(b, R)).join("") || '<div class="hint">Додай обовʼязкові платежі, і тут буде календар.</div>'}
+			<form class="add" data-money="bill"><input placeholder="Назва | 19.90 EUR | щомісяця 25 · кожні 31 дн з 2026-11-10" autocomplete="off" enterkeyhint="done"><button type="submit" aria-label="Додати">+</button></form>
+		</section>
 		<section class="block">
 			<div class="kpis">
 				<div><span>Дохід</span><b style="color:var(--accent)">${fmt(income)}</b></div>
 				<div><span>Витрати</span><b>${fmt(spent)}</b></div>
 				<div><span>Залишок</span><b class="${income - spent < 0 ? "warn" : ""}">${fmt(income - spent)}</b></div>
 			</div>
-			<div class="hint" style="margin-top:6px">У ${R.base}${income > 0 ? ` · відкладено ${Math.round((income - spent) / income * 100)}% доходу` : ""}${missing.size ? ` · <span class="warn">немає курсу: ${esc([...missing].join(", "))}</span>` : ""}</div>
+			<div class="hint" style="margin-top:6px">За ${MONTHS[d.getMonth()]}, у ${R.base}${income > 0 ? ` · відкладено ${Math.round((income - spent) / income * 100)}% доходу` : ""}${missing.size ? ` · <span class="warn">немає курсу: ${esc([...missing].join(", "))}</span>` : ""}</div>
 			<form class="add" data-money="tx">
 				<input placeholder="350 Їжа Сільпо · +20000 Дохід · 12 EUR Підписки" autocomplete="off" enterkeyhint="done">
 				<button type="submit" class="primary" aria-label="Додати">+</button>
@@ -1583,6 +1782,8 @@ document.getElementById("main").addEventListener("click", async e => {
 		input.value = (words.length ? words.join(" ") + " " : "") + catPick.dataset.catpick + " ";
 		return input.focus();
 	}
+	const billEl = t.closest("[data-bill]");
+	if (billEl) return payBill(Number(billEl.dataset.bill), billEl.dataset.billdate);
 	const txRow = t.closest("[data-tx]");
 	if (txRow) return editTransaction(Number(txRow.dataset.tx));
 	const debtRow = t.closest("[data-debt]");

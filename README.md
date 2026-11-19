@@ -11,7 +11,7 @@
 | Файл | Що це |
 |---|---|
 | `index.html` | Уся апка (без залежностей і збірки) |
-| `sw.js` | Офлайн-кеш. Змінив `index.html` → підніми `CACHE` (`plan-v5`…) |
+| `sw.js` | Офлайн-кеш. Змінив `index.html` → підніми `CACHE` (`plan-v6`…) |
 | `.nojekyll` | Каже GitHub Pages віддавати файли як є |
 | `manifest.webmanifest`, `icon.svg` | Встановлення на головний екран |
 | `FORMAT.md` | Специфікація формату `.plan` (давати ШІ) |

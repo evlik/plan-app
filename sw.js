@@ -2,7 +2,7 @@
    Bump CACHE when index.html changes so phones pick up the new version. */
 "use strict";
 
-const CACHE = "plan-v4";
+const CACHE = "plan-v5";
 const ASSETS = ["./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./FORMAT.md"];
 
 /** Pre-cache the app shell on install. */
