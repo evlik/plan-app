@@ -1,0 +1,1711 @@
+<!doctype html>
+<html lang="uk">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#2f6f5e">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon.svg">
+<title>План</title>
+<style>
+:root {
+	--bg: #f6f5f1; --panel: #ffffff; --ink: #1d1d1b; --muted: #75736c; --line: #e3e1da;
+	--accent: #2f6f5e; --accent-soft: #e2efe9; --warn: #a65a1b; --warn-soft: #f7eadf;
+	--mono: ui-monospace, "Cascadia Code", Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+	:root {
+		--bg: #141513; --panel: #1e1f1c; --ink: #ebe9e3; --muted: #9a988f; --line: #31322d;
+		--accent: #7cc4ad; --accent-soft: #22342e; --warn: #e2a067; --warn-soft: #3a2b1f;
+	}
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; background: var(--bg); color: var(--ink); font: 16px/1.45 system-ui, "Segoe UI", Roboto, sans-serif; }
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; border: 1px solid var(--line); background: var(--panel); border-radius: 10px; padding: 8px 14px; }
+button.primary { background: var(--accent); border-color: var(--accent); color: var(--bg); font-weight: 600; }
+button.ghost { border: 0; background: transparent; padding: 6px 8px; color: var(--muted); }
+button:disabled { opacity: .5; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+header.top { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: calc(env(safe-area-inset-top) + 10px) 16px 8px; display: flex; align-items: center; gap: 8px; border-bottom: 1px solid var(--line); }
+header.top h1 { font-size: 18px; margin: 0; flex: 1; text-align: center; font-weight: 650; }
+header.top h1 small { display: block; font-size: 12px; font-weight: 400; color: var(--muted); }
+header.top button { min-width: 40px; }
+
+main { padding: 12px 16px calc(96px + env(safe-area-inset-bottom)); max-width: 680px; margin: 0 auto; }
+section.block { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 12px 14px; margin-bottom: 12px; }
+section.block h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin: 0 0 6px; font-weight: 600; display: flex; justify-content: space-between; }
+.hint { font-size: 13px; color: var(--muted); }
+.warn { color: var(--warn); }
+
+.item { display: flex; align-items: flex-start; gap: 10px; padding: 7px 0; border-top: 1px solid var(--line); }
+.item:first-of-type { border-top: 0; }
+.item.sub { padding-left: 28px; }
+.box { flex: none; width: 24px; height: 24px; border-radius: 7px; border: 2px solid var(--muted); background: transparent; padding: 0; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700; }
+.box.x { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+.box.moved, .box.dropped { border-style: dashed; color: var(--muted); }
+.item .txt { flex: 1; min-width: 0; padding-top: 1px; overflow-wrap: anywhere; }
+.item.done .txt, .item.dropped .txt, .item.moved .txt { color: var(--muted); }
+.item.done .txt, .item.dropped .txt { text-decoration: line-through; }
+.time { font-family: var(--mono); font-size: 13px; color: var(--accent); margin-right: 6px; }
+.star { color: var(--warn); font-weight: 700; margin-right: 4px; }
+.chip { display: inline-block; font-size: 12px; padding: 1px 8px; border-radius: 10px; background: var(--accent-soft); color: var(--accent); margin: 2px 4px 0 0; }
+.note { padding: 6px 0 6px 10px; border-left: 3px solid var(--line); color: var(--muted); margin: 4px 0; overflow-wrap: anywhere; }
+.raw { font-family: var(--mono); font-size: 13px; color: var(--muted); padding: 4px 0; overflow-wrap: anywhere; }
+
+.habits { display: flex; flex-wrap: wrap; gap: 8px; }
+.habits button { border-radius: 20px; padding: 6px 14px; }
+.habits button.on { background: var(--accent); border-color: var(--accent); color: var(--bg); }
+
+form.add { display: flex; gap: 8px; margin-top: 8px; }
+form.add input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); }
+
+.daylink { display: flex; justify-content: space-between; padding: 9px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.daylink:first-of-type { border-top: 0; }
+.daylink.today b { color: var(--accent); }
+.bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
+.bar i { display: block; height: 100%; background: var(--accent); }
+.grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; }
+.grid div { aspect-ratio: 1; border-radius: 6px; background: var(--line); font-size: 11px; display: flex; align-items: center; justify-content: center; color: var(--muted); }
+
+textarea.rawedit { width: 100%; min-height: 55vh; font: 13px/1.55 var(--mono); padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); resize: vertical; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
+.row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+
+nav.tabs { position: fixed; bottom: 0; left: 0; right: 0; z-index: 6; display: grid; grid-template-columns: repeat(7, 1fr); background: var(--panel); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+nav.tabs button { border: 0; border-radius: 0; background: transparent; padding: 8px 0 10px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+nav.tabs button span { font-size: 19px; line-height: 1; }
+nav.tabs button.active { color: var(--accent); font-weight: 600; }
+
+.sheet-bg { position: fixed; inset: 0; background: rgba(0,0,0,.35); z-index: 20; display: flex; align-items: flex-end; justify-content: center; }
+.sheet { background: var(--panel); width: 100%; max-width: 680px; border-radius: 18px 18px 0 0; padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); }
+.sheet input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); margin-bottom: 10px; }
+.sheet .acts { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(80px + env(safe-area-inset-bottom)); background: var(--ink); color: var(--bg); padding: 8px 14px; border-radius: 10px; font-size: 14px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 30; }
+.toast.show { opacity: .93; }
+nav.tabs button.dirty span { position: relative; }
+nav.tabs button.dirty span::after { content: ""; position: absolute; top: -2px; right: -7px; width: 7px; height: 7px; border-radius: 50%; background: var(--warn); }
+details summary { cursor: pointer; }
+.tx { display: flex; align-items: baseline; gap: 8px; padding: 8px 0; border-top: 1px solid var(--line); cursor: pointer; }
+.tx:first-of-type { border-top: 0; }
+.tx .d { font-family: var(--mono); font-size: 12px; color: var(--muted); flex: none; width: 22px; }
+.tx .w { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.tx .a { font-family: var(--mono); font-size: 14px; flex: none; }
+.tx .a.inc { color: var(--accent); }
+.kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.kpis div { background: var(--bg); border-radius: 10px; padding: 8px 10px; }
+.kpis b { display: block; font-family: var(--mono); font-size: 15px; }
+.kpis span { font-size: 12px; color: var(--muted); }
+.bar i.over { background: var(--warn); }
+.tips li { margin: 4px 0; font-size: 14px; }
+#syncForm { padding-top: 10px; }
+#syncForm input { width: 100%; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<header class="top">
+	<button class="ghost" id="prev" aria-label="Назад">‹</button>
+	<h1 id="title">План</h1>
+	<button class="ghost" id="next" aria-label="Вперед">›</button>
+</header>
+<main id="main"></main>
+<nav class="tabs" id="tabs">
+	<button data-tab="day"><span>◉</span>День</button>
+	<button data-tab="week"><span>▦</span>Тиждень</button>
+	<button data-tab="month"><span>▤</span>Місяць</button>
+	<button data-tab="goals"><span>◎</span>Цілі</button>
+	<button data-tab="money"><span>¤</span>Гроші</button>
+	<button data-tab="inbox"><span>⇣</span>Вхідні</button>
+	<button data-tab="file"><span>≡</span>Файл</button>
+</nav>
+<div class="toast" id="toast"></div>
+<input type="file" id="importInput" accept=".plan,.txt,.md,text/plain" hidden>
+
+<script>
+"use strict";
+
+/* ============================================================
+   Constants
+   ============================================================ */
+
+const STORAGE_KEY = "plan.text.v1";
+const WEEKDAYS = ["Нд", "Пн", "Вт", "Ср", "Чт", "Пт", "Сб"];
+const WEEKDAYS_FULL = ["неділя", "понеділок", "вівторок", "середа", "четвер", "пʼятниця", "субота"];
+const MONTHS = ["січень", "лютий", "березень", "квітень", "травень", "червень", "липень", "серпень", "вересень", "жовтень", "листопад", "грудень"];
+const EMPTY_DOC = `PLAN 1
+# Формат: [ ] задача  [x] зроблено  [>] перенесено  [-] скасовано  ! головна  10:00 час  > нотатка
+
+@goals
+
+@habits
+
+@inbox
+`;
+const AI_PROMPT = `Нижче мій план у форматі .plan. Правила формату:
+- Секції: @goals, @habits, @inbox, @month YYYY-MM, @week YYYY-Www (ISO, пн перший), @day YYYY-MM-DD. Порожній рядок перед секцією, секції одного типу — за датою, без дублів.
+- Задачі: "[ ] текст", "[x]" зроблено, "[>]" перенесено, "[-]" скасовано. "!" одразу після квадратика = головна. Час: "[ ] 10:00-12:00 текст". Підзадача: 2 пробіли відступу.
+- "> текст" нотатка. "# текст" коментар. "habits: А, Б" — звички, виконані в день (назви з @habits). Поля через " | " (ціль | до дата | готово: критерій).
+- Не більше 3 "!" на день. Плануй 60–70% часу. Переносячи задачу: старий рядок [>], новий [ ] в іншому дні. Минулі дні та незнайомі рядки не видаляй.
+- Гроші: "@money YYYY-MM", рядок "YYYY-MM-DD -350.40 UAH Категорія | опис" (мінус витрата, плюс дохід, валюта 3 літери). З чека — один рядок на категорію, в секцію місяця дати чека.
+- "@budget YYYY-MM": "Категорія 6000 UAH". "@rates": "base UAH", "USD 41.5" (1 USD у базовій). "@debts": "[ ] Назва | 500 USD | 20% | до 2027-01-01", платежі під ним "  YYYY-MM-DD 100 USD"; "мені винні" — поле для боргу мені. Ціна цілі: поле "ціна: 100 USD".
+Поверни ПОВНИЙ оновлений файл одним блоком коду, без пояснень усередині.
+
+Моє завдання: `;
+
+/* ============================================================
+   State
+   ============================================================ */
+
+const state = {
+	lines: [],          // whole document as array of lines (source of truth)
+	tab: "day",
+	cursor: new Date(), // date the day/week/month views look at
+	fileHandle: null,   // optional linked file (desktop browsers only)
+	fileModified: 0,
+};
+
+/* ============================================================
+   Date helpers
+   ============================================================ */
+
+/** Format a Date as YYYY-MM-DD in local time. */
+function isoDate(d) {
+	return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
+/** Parse YYYY-MM-DD into a local Date (noon, to avoid DST edge cases). */
+function parseDate(s) {
+	const [y, m, d] = s.split("-").map(Number);
+	return new Date(y, m - 1, d, 12);
+}
+
+/** Return a new Date shifted by n days. */
+function addDays(d, n) {
+	const r = new Date(d);
+	r.setDate(r.getDate() + n);
+	return r;
+}
+
+/** Return the ISO-8601 week id (e.g. 2026-W47). */
+function isoWeek(d) {
+	const t = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+	const day = t.getUTCDay() || 7;
+	t.setUTCDate(t.getUTCDate() + 4 - day);
+	const yearStart = new Date(Date.UTC(t.getUTCFullYear(), 0, 1));
+	return `${t.getUTCFullYear()}-W${String(Math.ceil(((t - yearStart) / 86400000 + 1) / 7)).padStart(2, "0")}`;
+}
+
+/** Return Monday of the week containing d. */
+function weekStart(d) {
+	return addDays(d, -((d.getDay() + 6) % 7));
+}
+
+/** Return the month id YYYY-MM. */
+function monthId(d) {
+	return isoDate(d).slice(0, 7);
+}
+
+/* ============================================================
+   Format: parsing single lines
+   ============================================================ */
+
+const TASK_RE = /^(\s*)\[([ xX>\-])\]\s?(!\s*)?(\d{1,2}:\d{2}(?:\s*-\s*\d{1,2}:\d{2})?\s+)?(.*)$/;
+const HEADER_RE = /^@(\w+)(?:\s+(\S+))?\s*$/;
+
+/** Parse one line into a typed element; unknown lines become {kind:"raw"}. */
+function parseLine(line) {
+	let m;
+	if ((m = line.match(TASK_RE))) {
+		const parts = m[5].split(" | ");
+		return {
+			kind: "task",
+			sub: m[1].length >= 2,
+			state: { " ": "open", x: "done", X: "done", ">": "moved", "-": "dropped" }[m[2]],
+			main: !!m[3],
+			time: m[4] ? m[4].trim().replace(/\s+/g, "") : "",
+			text: parts[0].trim(),
+			fields: parts.slice(1).map(s => s.trim()).filter(Boolean),
+		};
+	}
+	if ((m = line.match(/^>\s?(.*)$/))) return { kind: "note", text: m[1] };
+	if ((m = line.match(/^habits:\s*(.*)$/i))) return { kind: "habits", names: m[1].split(",").map(s => s.trim()).filter(Boolean) };
+	if (/^\s*$/.test(line)) return { kind: "blank" };
+	if (/^#/.test(line) || /^PLAN\s+\d+/.test(line)) return { kind: "comment" };
+	return { kind: "raw", text: line };
+}
+
+/** Serialize a task element back into canonical text. */
+function taskToLine(t) {
+	const box = { open: " ", done: "x", moved: ">", dropped: "-" }[t.state];
+	const head = `${t.sub ? "  " : ""}[${box}] ${t.main ? "! " : ""}${t.time ? t.time + " " : ""}`;
+	return head + [t.text, ...t.fields].join(" | ");
+}
+
+/** Turn free user input like "! 10:00 Пара" into a task element. */
+function taskFromInput(input) {
+	let s = input.trim().replace(/\s+/g, " ");
+	let main = false, time = "";
+	if (s.startsWith("!")) { main = true; s = s.slice(1).trim(); }
+	const tm = s.match(/^(\d{1,2}:\d{2}(?:-\d{1,2}:\d{2})?)\s+(.*)$/);
+	if (tm) { time = tm[1]; s = tm[2]; }
+	if (!main && s.startsWith("!")) { main = true; s = s.slice(1).trim(); }
+	const parts = s.split(" | ");
+	return { kind: "task", sub: false, state: "open", main, time, text: parts[0].trim(), fields: parts.slice(1).map(p => p.trim()).filter(Boolean) };
+}
+
+/* ============================================================
+   Format: sections within the document
+   ============================================================ */
+
+/** List all sections with their [start, end) line ranges. */
+function listSections(lines = state.lines) {
+	const out = [];
+	lines.forEach((l, i) => {
+		const m = l.match(HEADER_RE);
+		if (!m) return;
+		if (out.length) out[out.length - 1].end = i;
+		out.push({ type: m[1].toLowerCase(), id: m[2] || "", start: i, end: lines.length });
+	});
+	return out;
+}
+
+/** Find one section by type and id. */
+function findSection(type, id = "") {
+	return listSections().find(s => s.type === type && s.id === id) || null;
+}
+
+/** Return [{idx, el}] for body lines of a section (empty if missing). */
+function sectionItems(type, id = "") {
+	const s = findSection(type, id);
+	if (!s) return [];
+	const out = [];
+	for (let i = s.start + 1; i < s.end; i++) out.push({ idx: i, el: parseLine(state.lines[i]) });
+	return out;
+}
+
+/** Create a section if missing, keeping same-type sections sorted by id. Returns it. */
+function ensureSection(type, id = "") {
+	const existing = findSection(type, id);
+	if (existing) return existing;
+	const same = listSections().filter(s => s.type === type);
+	const after = same.find(s => s.id > id);
+	let at = after ? after.start : (same.length ? same[same.length - 1].end : state.lines.length);
+	// keep a trailing newline at EOF out of the way
+	while (!after && at > 0 && state.lines[at - 1] === "" && at === state.lines.length) at--;
+	const block = [`@${type}${id ? " " + id : ""}`, ""];
+	if (at > 0 && state.lines[at - 1] !== "") block.unshift("");
+	state.lines.splice(at, 0, ...block);
+	return findSection(type, id);
+}
+
+/** Insert a line at the end of a section (after its last non-blank line). */
+function appendToSection(type, id, line) {
+	const s = ensureSection(type, id);
+	let at = s.end;
+	while (at - 1 > s.start && state.lines[at - 1].trim() === "") at--;
+	state.lines.splice(at, 0, line);
+	return at;
+}
+
+/* ============================================================
+   Persistence: local storage, linked file, import / export
+   ============================================================ */
+
+/** Read the stored document text, or null if storage is unavailable / empty. */
+function loadStored() {
+	try {
+		return localStorage.getItem(STORAGE_KEY);
+	} catch (err) {
+		console.warn("[WARNING] localStorage unavailable:", err);
+		return null;
+	}
+}
+
+/** Persist the document locally and to the linked file, if any. */
+async function save() {
+	const text = state.lines.join("\n");
+	try {
+		localStorage.setItem(STORAGE_KEY, text);
+	} catch (err) {
+		console.error("[ERROR] Saving to localStorage:", err);
+		toast("Не вдалося зберегти в памʼять браузера — зроби експорт файлу");
+	}
+	if (state.fileHandle) {
+		try {
+			const w = await state.fileHandle.createWritable();
+			await w.write(text);
+			await w.close();
+			state.fileModified = (await state.fileHandle.getFile()).lastModified;
+		} catch (err) {
+			console.error("[ERROR] Writing linked file:", err);
+			toast("Не вдалося записати у файл: " + err.message);
+		}
+	}
+	scheduleSync();
+	updateSyncBadge();
+}
+
+/** Apply a mutation to the document, then save and re-render. */
+async function mutate(fn) {
+	fn();
+	await save();
+	render();
+}
+
+/** Replace the whole document text (import, raw edit, external change). */
+async function setText(text, { persist = true } = {}) {
+	state.lines = text.replace(/\r\n?/g, "\n").split("\n");
+	if (persist) await save();
+	render();
+}
+
+/** Basic sanity check so a random file is not imported by accident. */
+function looksLikePlan(text) {
+	return /^PLAN\s+\d+/m.test(text) || /^@(goals|habits|inbox|day|week|month)\b/m.test(text);
+}
+
+/** Download / share the document as a .plan file. */
+async function exportFile() {
+	const name = `plan-${isoDate(new Date())}.plan`;
+	const blob = new Blob([state.lines.join("\n")], { type: "text/plain" });
+	const file = new File([blob], name, { type: "text/plain" });
+	if (navigator.canShare && navigator.canShare({ files: [file] }) && matchMedia("(pointer: coarse)").matches) {
+		try {
+			await navigator.share({ files: [file], title: name });
+			return;
+		} catch (err) {
+			if (err.name === "AbortError") return;
+			console.warn("[WARNING] Share failed, falling back to download:", err);
+		}
+	}
+	const a = document.createElement("a");
+	a.href = URL.createObjectURL(blob);
+	a.download = name;
+	a.click();
+	setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+	toast("Збережено " + name);
+}
+
+/** Import a file chosen by the user, replacing the current plan after confirmation. */
+async function importFile(file) {
+	try {
+		const text = await file.text();
+		if (!looksLikePlan(text) && !confirm("Файл не схожий на .plan. Все одно імпортувати?")) return;
+		if (!confirm("Замінити поточний план вмістом файлу? Порада: спершу зроби експорт.")) return;
+		await setText(text);
+		toast("Імпортовано");
+	} catch (err) {
+		console.error("[ERROR] Import:", err);
+		toast("Не вдалося прочитати файл");
+	}
+}
+
+/** Desktop only: link a .plan file so every change is written to it and outside edits are picked up. */
+async function linkFile() {
+	try {
+		const [h] = await window.showOpenFilePicker({ types: [{ description: "План", accept: { "text/plain": [".plan", ".txt", ".md"] } }] });
+		if ((await h.requestPermission({ mode: "readwrite" })) !== "granted") return toast("Потрібен дозвіл на запис");
+		const f = await h.getFile();
+		const text = await f.text();
+		state.fileHandle = h;
+		state.fileModified = f.lastModified;
+		if (text.trim()) {
+			await setText(text, { persist: false });
+			try { localStorage.setItem(STORAGE_KEY, text); } catch { /* non-fatal */ }
+		} else {
+			await save();
+		}
+		toast("Звʼязано з " + h.name);
+		scheduleSync();
+		render();
+	} catch (err) {
+		if (err.name !== "AbortError") {
+			console.error("[ERROR] Link file:", err);
+			toast("Не вдалося відкрити файл");
+		}
+	}
+}
+
+/** Reload the linked file if something else (e.g. an AI) changed it. */
+async function checkLinkedFile() {
+	if (!state.fileHandle || document.querySelector(".rawedit:focus, .sheet-bg")) return;
+	try {
+		const f = await state.fileHandle.getFile();
+		if (f.lastModified !== state.fileModified) {
+			state.fileModified = f.lastModified;
+			await setText(await f.text(), { persist: false });
+			try { localStorage.setItem(STORAGE_KEY, state.lines.join("\n")); } catch { /* non-fatal */ }
+			toast("Файл оновлено ззовні");
+			scheduleSync();
+			updateSyncBadge();
+		}
+	} catch (err) {
+		console.warn("[WARNING] Linked file check:", err);
+	}
+}
+
+/* ============================================================
+   GitHub sync: the plan lives in a private repo as one file;
+   every sync with changes becomes one commit (= full history).
+   ============================================================ */
+
+const SYNC_KEY = "plan.sync.v1";            // settings {owner, repo, branch, path, token, device}
+const SYNC_BASE_KEY = "plan.sync.base.v1";  // last synced version {repoKey, sha, text, at}
+const GITHUB_API = "https://api.github.com";
+const SYNC_TIMEOUT_MS = 15000;
+const SYNC_DEBOUNCE_MS = 120000;
+const SYNC_RETRY_MAX_MS = 600000;
+const sync = { busy: false, timer: null, retryDelay: 0, status: "" };
+
+/** Read JSON from localStorage; null when missing or unavailable. */
+function readJson(key) {
+	try {
+		return JSON.parse(localStorage.getItem(key) || "null");
+	} catch (err) {
+		console.warn("[WARNING] Reading", key, err);
+		return null;
+	}
+}
+
+/** Write JSON to localStorage (or remove when value is null); returns success. */
+function writeJson(key, value) {
+	try {
+		if (value === null) localStorage.removeItem(key);
+		else localStorage.setItem(key, JSON.stringify(value));
+		return true;
+	} catch (err) {
+		console.error("[ERROR] Writing", key, err);
+		return false;
+	}
+}
+
+/** Complete sync settings, or null when sync is not set up. */
+function syncConfig() {
+	const c = readJson(SYNC_KEY);
+	return c && c.owner && c.repo && c.token && c.branch && c.path ? c : null;
+}
+
+/** Identifies which remote file a stored base version belongs to. */
+function repoKey(cfg) {
+	return `${cfg.owner}/${cfg.repo}@${cfg.branch}:${cfg.path}`;
+}
+
+/** Last synced version for the current settings, or null. */
+function syncBase(cfg) {
+	const b = readJson(SYNC_BASE_KEY);
+	return b && b.repoKey === repoKey(cfg) ? b : null;
+}
+
+/** Remember the version that is now identical locally and on GitHub. */
+function saveBase(cfg, sha, text) {
+	writeJson(SYNC_BASE_KEY, { repoKey: repoKey(cfg), sha, text, at: Date.now() });
+}
+
+/** True when local text differs from the last synced version. */
+function isDirty() {
+	const cfg = syncConfig();
+	if (!cfg) return false;
+	const b = syncBase(cfg);
+	return !b || b.text !== state.lines.join("\n");
+}
+
+/** UTF-8 safe base64 encoding (GitHub contents API format). */
+function b64encode(text) {
+	const bytes = new TextEncoder().encode(text);
+	let bin = "";
+	for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+	return btoa(bin);
+}
+
+/** UTF-8 safe base64 decoding. */
+function b64decode(b64) {
+	const bin = atob(b64.replace(/\s/g, ""));
+	return new TextDecoder().decode(Uint8Array.from(bin, c => c.charCodeAt(0)));
+}
+
+/** Build an Error that says whether retrying later makes sense. */
+function syncError(message, retryable) {
+	const e = new Error(message);
+	e.retryable = retryable;
+	return e;
+}
+
+/** Human-readable explanation of a GitHub API failure, with what to check. */
+function ghErrorMessage(status, data) {
+	const msg = data && data.message ? ` (${data.message})` : "";
+	if (status === 401) return "Токен недійсний або прострочений. Створи новий і встав у налаштуваннях.";
+	if (status === 403) return "Немає доступу. Перевір, що токен має Contents: Read and write саме для цього репозиторію" + msg;
+	if (status === 404) return "Репозиторій або гілку не знайдено. Перевір власника, назву, гілку і доступ токена до репозиторію.";
+	if (status === 409 || status === 422) return "GitHub відхилив запис" + msg;
+	return `GitHub відповів ${status}${msg}`;
+}
+
+/** Call the GitHub contents API for a path, with a timeout. */
+async function ghContents(cfg, method, path, body, keepalive = false) {
+	const encPath = path.split("/").map(encodeURIComponent).join("/");
+	let url = `${GITHUB_API}/repos/${encodeURIComponent(cfg.owner)}/${encodeURIComponent(cfg.repo)}/contents/${encPath}`;
+	if (method === "GET") url += `?ref=${encodeURIComponent(cfg.branch)}&t=${Date.now()}`;
+	const ctrl = new AbortController();
+	const timer = setTimeout(() => ctrl.abort(), SYNC_TIMEOUT_MS);
+	try {
+		const res = await fetch(url, {
+			method,
+			keepalive,
+			signal: ctrl.signal,
+			cache: "no-store",
+			headers: {
+				Authorization: `Bearer ${cfg.token}`,
+				Accept: "application/vnd.github+json",
+				...(body ? { "Content-Type": "application/json" } : {}),
+			},
+			body: body ? JSON.stringify(body) : undefined,
+		});
+		const data = await res.json().catch(() => null);
+		return { status: res.status, data };
+	} catch (err) {
+		if (err.name === "AbortError") throw syncError("GitHub не відповів за 15 с — спробую пізніше", true);
+		throw syncError("Немає звʼязку з GitHub — спробую пізніше", true);
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** Commit message: date, time and device name. */
+function commitMessage(cfg) {
+	const d = new Date();
+	return `План: ${isoDate(d)} ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")} (${cfg.device || "пристрій"})`;
+}
+
+/** Write text to a path in the repo; returns the new blob sha. */
+async function ghPut(cfg, path, text, sha, keepalive = false) {
+	const body = { message: commitMessage(cfg), content: b64encode(text), branch: cfg.branch };
+	if (sha) body.sha = sha;
+	const r = await ghContents(cfg, "PUT", path, body, keepalive);
+	if (r.status === 200 || r.status === 201) return r.data.content.sha;
+	if (r.status === 409 || r.status === 422) throw Object.assign(syncError(ghErrorMessage(r.status, r.data), true), { shaConflict: true });
+	throw syncError(ghErrorMessage(r.status, r.data), r.status >= 500 || r.status === 429);
+}
+
+/** Ask the user to pick one option; resolves with the option key. */
+function chooseDialog(message, options) {
+	return new Promise(resolve => {
+		const bg = document.createElement("div");
+		bg.className = "sheet-bg";
+		bg.innerHTML = `<div class="sheet" role="dialog" aria-label="Вибір">
+			<p style="margin-top:0">${esc(message)}</p>
+			<div class="acts" style="grid-template-columns:1fr">${options.map(([k, t], i) =>
+				`<button data-choice="${k}" class="${i === 0 ? "primary" : ""}">${esc(t)}</button>`).join("")}</div>
+		</div>`;
+		document.body.appendChild(bg);
+		bg.addEventListener("click", e => {
+			const c = e.target.closest("[data-choice]");
+			if (!c) return;
+			bg.remove();
+			resolve(c.dataset.choice);
+		});
+	});
+}
+
+/** Replace local plan with the GitHub version. */
+async function takeRemote(cfg, remote) {
+	saveBase(cfg, remote.sha, remote.text);
+	await setText(remote.text);
+	toast("Підтягнуто зміни з GitHub");
+}
+
+/** One sync pass: pull, push, or resolve a conflict. */
+async function syncOnce(cfg, keepalive, attempt = 0) {
+	const base = syncBase(cfg);
+	const local = state.lines.join("\n");
+	const g = await ghContents(cfg, "GET", cfg.path, null, keepalive);
+	let remote = null;
+	if (g.status === 200) {
+		if (!g.data || typeof g.data.content !== "string" || (g.data.size > 0 && !g.data.content)) {
+			throw syncError("Файл на GitHub завеликий для синхронізації (> 1 МБ)", false);
+		}
+		remote = { sha: g.data.sha, text: b64decode(g.data.content).replace(/\r\n?/g, "\n") };
+	} else if (g.status !== 404) {
+		throw syncError(ghErrorMessage(g.status, g.data), g.status >= 500 || g.status === 429);
+	}
+
+	const push = async sha => {
+		try {
+			const newSha = await ghPut(cfg, cfg.path, local, sha, keepalive);
+			saveBase(cfg, newSha, local);
+			return "збережено в GitHub";
+		} catch (err) {
+			if (err.shaConflict && attempt < 1) return syncOnce(cfg, keepalive, attempt + 1);
+			throw err;
+		}
+	};
+
+	if (!remote) return push(undefined);                                   // file not created yet
+	if (base && remote.sha === base.sha) return local === base.text ? "актуально" : push(remote.sha);
+	if (remote.text === local) { saveBase(cfg, remote.sha, local); return "актуально"; }
+	const localUntouched = base ? local === base.text : local.trim() === EMPTY_DOC.trim();
+	if (localUntouched) { await takeRemote(cfg, remote); return "оновлено з GitHub"; }
+
+	// Both sides changed since the last sync: nothing is lost either way.
+	const choice = await chooseDialog(
+		"План змінено і тут, і на GitHub (наприклад, на іншому пристрої або ШІ). Що залишити?",
+		[["remote", "Версію з GitHub (мою збережу в conflicts/)"], ["local", "Мою версію (та, що на GitHub, лишиться в історії)"], ["later", "Вирішу пізніше"]]
+	);
+	if (choice === "local") return push(remote.sha);
+	if (choice === "remote") {
+		await ghPut(cfg, `conflicts/plan-${isoDate(new Date())}-${Date.now()}.plan`, local, undefined);
+		await takeRemote(cfg, remote);
+		return "оновлено з GitHub, твою версію збережено в conflicts/";
+	}
+	return "конфлікт не вирішено";
+}
+
+/** Run a sync now if configured, online and the user is not mid-edit. */
+async function syncNow({ manual = false, keepalive = false } = {}) {
+	const cfg = syncConfig();
+	if (!cfg || sync.busy) return;
+	if (!navigator.onLine) { setSyncStatus("офлайн — синхронізую, коли зʼявиться мережа"); return; }
+	if (!manual && document.querySelector(".rawedit:focus, .sheet-bg")) { scheduleSync(30000); return; }
+	sync.busy = true;
+	setSyncStatus("синхронізація…");
+	try {
+		const result = await syncOnce(cfg, keepalive);
+		sync.retryDelay = 0;
+		setSyncStatus(result);
+		if (manual) toast(result);
+		console.info("[INFO] Sync:", result);
+	} catch (err) {
+		console.error("[ERROR] Sync:", err);
+		setSyncStatus("помилка: " + err.message);
+		if (manual) toast(err.message);
+		if (err.retryable) scheduleRetry();
+	} finally {
+		sync.busy = false;
+		updateSyncBadge();
+	}
+}
+
+/** Sync a while after the last change (changes are batched into one commit). */
+function scheduleSync(delayMs = SYNC_DEBOUNCE_MS) {
+	if (!syncConfig()) return;
+	clearTimeout(sync.timer);
+	sync.timer = setTimeout(() => syncNow(), delayMs);
+}
+
+/** Retry with exponential backoff (30 s, 1, 2, 4, 8, max 10 min). */
+function scheduleRetry() {
+	sync.retryDelay = Math.min(sync.retryDelay ? sync.retryDelay * 2 : 30000, SYNC_RETRY_MAX_MS);
+	clearTimeout(sync.timer);
+	sync.timer = setTimeout(() => syncNow(), sync.retryDelay);
+}
+
+/** Update the status text in the File tab, if it is visible. */
+function setSyncStatus(text) {
+	sync.status = text;
+	const el = document.getElementById("syncStatus");
+	if (el) el.textContent = syncStatusText();
+}
+
+/** Status line: current state plus time of last successful sync. */
+function syncStatusText() {
+	const cfg = syncConfig();
+	if (!cfg) return "не налаштовано";
+	const b = syncBase(cfg);
+	const last = b ? new Date(b.at).toLocaleString("uk-UA", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "ще не було";
+	return `${sync.status || (isDirty() ? "є несинхронізовані зміни" : "актуально")} · остання: ${last}`;
+}
+
+/** Mark the File tab when there are changes not yet on GitHub. */
+function updateSyncBadge() {
+	document.querySelector('#tabs [data-tab="file"]')?.classList.toggle("dirty", isDirty());
+}
+
+/** Validate and store sync settings from the form, then sync. */
+async function saveSyncSettings(form) {
+	const f = Object.fromEntries(new FormData(form).entries());
+	const old = readJson(SYNC_KEY) || {};
+	const cfg = {
+		owner: f.owner.trim(),
+		repo: f.repo.trim(),
+		branch: f.branch.trim() || "main",
+		path: f.path.trim() || "plan.plan",
+		token: f.token.trim() || old.token || "",
+		device: f.device.trim() || (matchMedia("(pointer: coarse)").matches ? "телефон" : "компʼютер"),
+	};
+	const name = /^[A-Za-z0-9_.-]+$/;
+	if (!name.test(cfg.owner) || !name.test(cfg.repo)) return toast("Власник і репозиторій — лише латиниця, цифри, - _ .");
+	if (/\s/.test(cfg.branch)) return toast("Назва гілки без пробілів");
+	if (!/^[\w.\-/]+$/.test(cfg.path) || cfg.path.startsWith("/") || cfg.path.includes("..")) return toast("Некоректний шлях до файлу");
+	if (!cfg.token) return toast("Встав токен");
+	if (!/^(github_pat_|ghp_)/.test(cfg.token) && !confirm("Токен не схожий на токен GitHub. Зберегти все одно?")) return;
+	if (!writeJson(SYNC_KEY, cfg)) return toast("Не вдалося зберегти налаштування");
+	sync.status = "";
+	render();
+	await syncNow({ manual: true });
+	render();
+}
+
+/** Remove sync settings (the repo itself is untouched). */
+function disconnectSync() {
+	if (!confirm("Відключити синхронізацію на цьому пристрої? Репозиторій і план нікуди не зникнуть.")) return;
+	clearTimeout(sync.timer);
+	writeJson(SYNC_KEY, null);
+	writeJson(SYNC_BASE_KEY, null);
+	sync.status = "";
+	updateSyncBadge();
+	render();
+}
+
+/* ============================================================
+   UI helpers
+   ============================================================ */
+
+/** Escape text for safe insertion into HTML. */
+function esc(s) {
+	return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+/** Show a short message near the bottom of the screen. */
+function toast(msg) {
+	const el = document.getElementById("toast");
+	el.textContent = msg;
+	el.classList.add("show");
+	clearTimeout(toast.t);
+	toast.t = setTimeout(() => el.classList.remove("show"), 2400);
+}
+
+/** Render a list of section items (tasks, notes, raw lines). */
+function renderItems(items, { skipHabits = true } = {}) {
+	return items.map(({ idx, el }) => {
+		if (el.kind === "task") {
+			const mark = { open: "", done: "✓", moved: "›", dropped: "–" }[el.state];
+			return `<div class="item ${el.sub ? "sub" : ""} ${el.state}">
+				<button class="box ${el.state === "done" ? "x" : el.state}" data-toggle="${idx}" aria-label="Змінити стан">${mark}</button>
+				<div class="txt" data-edit="${idx}">${el.main ? '<span class="star">!</span>' : ""}${el.time ? `<span class="time">${esc(el.time)}</span>` : ""}${esc(el.text) || '<span class="hint">без назви</span>'}
+					${el.fields.length ? "<br>" + el.fields.map(f => `<span class="chip">${esc(f)}</span>`).join("") : ""}</div>
+				<button class="ghost" data-edit="${idx}" aria-label="Дії">⋯</button>
+			</div>`;
+		}
+		if (el.kind === "note") return `<div class="note" data-edit="${idx}">${esc(el.text)}</div>`;
+		if (el.kind === "raw") return `<div class="raw">${esc(el.text)}</div>`;
+		if (el.kind === "habits" && !skipHabits) return `<div class="raw">habits: ${esc(el.names.join(", "))}</div>`;
+		return "";
+	}).join("");
+}
+
+/** Quick-add form bound to a section. */
+function addForm(type, id, placeholder) {
+	return `<form class="add" data-type="${type}" data-id="${esc(id)}">
+		<input placeholder="${esc(placeholder)}" autocomplete="off" enterkeyhint="done">
+		<button type="submit" class="primary" aria-label="Додати">+</button>
+	</form>`;
+}
+
+/** Count done / total tasks (dropped and moved are excluded from total). */
+function progress(items) {
+	const tasks = items.filter(i => i.el.kind === "task" && !i.el.sub && i.el.text && (i.el.state === "open" || i.el.state === "done"));
+	return { done: tasks.filter(t => t.el.state === "done").length, total: tasks.length };
+}
+
+/** Habit names defined in @habits. */
+function habitList() {
+	return sectionItems("habits").map(i => i.el).filter(e => e.kind === "raw").map(e => e.text.trim()).filter(Boolean);
+}
+
+/** Set the header title and arrows. */
+function setHeader(title, sub, arrows) {
+	document.getElementById("title").innerHTML = `${esc(title)}${sub ? `<small>${esc(sub)}</small>` : ""}`;
+	document.getElementById("prev").style.visibility = arrows ? "visible" : "hidden";
+	document.getElementById("next").style.visibility = arrows ? "visible" : "hidden";
+}
+
+/* ============================================================
+   Views
+   ============================================================ */
+
+/** Re-render the current tab. */
+function render() {
+	document.querySelectorAll("#tabs [data-tab]").forEach(b => b.classList.toggle("active", b.dataset.tab === state.tab));
+	const views = { day: viewDay, week: viewWeek, month: viewMonth, goals: viewGoals, money: viewMoney, inbox: viewInbox, file: viewFile };
+	document.getElementById("main").innerHTML = views[state.tab]();
+}
+
+/** Day view: main tasks, other tasks, habits, notes. */
+function viewDay() {
+	const d = state.cursor, id = isoDate(d);
+	const today = isoDate(new Date()) === id;
+	setHeader(`${WEEKDAYS_FULL[d.getDay()]}, ${d.getDate()} ${MONTHS[d.getMonth()].slice(0, 3)}`, today ? "сьогодні" : id, true);
+	const items = sectionItems("day", id);
+	const tasks = items.filter(i => i.el.kind === "task");
+	const mains = tasks.filter(i => i.el.main && !i.el.sub);
+	const others = items.filter(i => i.el.kind === "task" ? !(i.el.main && !i.el.sub) : i.el.kind === "raw");
+	const notes = items.filter(i => i.el.kind === "note");
+	const p = progress(items);
+	const habits = habitList();
+	const doneHabits = new Set(items.filter(i => i.el.kind === "habits").flatMap(i => i.el.names));
+	const weekGoals = sectionItems("week", isoWeek(d)).filter(i => i.el.kind === "task" && i.el.state === "open" && !i.el.sub);
+	return `
+		<section class="block">
+			<h2>Головні <span>${mains.length > 3 ? '<span class="warn">більше 3</span>' : `${mains.length}/3`}</span></h2>
+			${renderItems(mains) || '<div class="hint">1–3 речі, які зроблять день корисним. Почни з «!»</div>'}
+		</section>
+		<section class="block">
+			<h2>Справи <span>${p.total ? `${p.done}/${p.total}` : ""}</span></h2>
+			${renderItems(others) || '<div class="hint">Порожньо</div>'}
+			${p.total ? `<div class="bar"><i style="width:${Math.round(p.done / p.total * 100)}%"></i></div>` : ""}
+			${addForm("day", id, "! головна · 10:00 час · текст")}
+		</section>
+		${habits.length ? `<section class="block"><h2>Звички</h2><div class="habits">
+			${habits.map(h => `<button data-habit="${esc(h)}" class="${doneHabits.has(h) ? "on" : ""}">${esc(h)}</button>`).join("")}
+		</div></section>` : ""}
+		<section class="block">
+			<h2>Нотатки</h2>
+			${renderItems(notes)}
+			<form class="add" data-type="day" data-id="${id}" data-note="1">
+				<input placeholder="Нотатка дня…" autocomplete="off" enterkeyhint="done">
+				<button type="submit" aria-label="Додати нотатку">+</button>
+			</form>
+		</section>
+		${weekGoals.length ? `<section class="block"><h2>Цього тижня</h2>${renderItems(weekGoals)}</section>` : ""}`;
+}
+
+/** Week view: week results, per-day progress, habit grid, carried-over tasks. */
+function viewWeek() {
+	const mon = weekStart(state.cursor), wid = isoWeek(state.cursor);
+	setHeader(`Тиждень ${wid.split("-W")[1]}`, `${mon.getDate()} ${MONTHS[mon.getMonth()].slice(0, 3)} – ${addDays(mon, 6).getDate()} ${MONTHS[addDays(mon, 6).getMonth()].slice(0, 3)}`, true);
+	const todayId = isoDate(new Date());
+	const habits = habitList();
+	const days = [...Array(7)].map((_, i) => addDays(mon, i));
+	const rows = days.map(d => {
+		const id = isoDate(d), items = sectionItems("day", id), p = progress(items);
+		const mains = items.filter(i => i.el.kind === "task" && i.el.main && !i.el.sub && (i.el.state === "open" || i.el.state === "done")).map(i => i.el.text);
+		return `<div class="daylink ${id === todayId ? "today" : ""}" data-goday="${id}">
+			<div><b>${WEEKDAYS[d.getDay()]} ${d.getDate()}</b> <span class="hint">${esc(mains.join(" · "))}</span></div>
+			<span class="hint">${p.total ? `${p.done}/${p.total}` : "—"}</span>
+		</div>`;
+	}).join("");
+	const habitGrid = habits.length ? `<section class="block"><h2>Звички за тиждень</h2>
+		${habits.map(h => {
+			const cells = days.map(d => sectionItems("day", isoDate(d)).some(i => i.el.kind === "habits" && i.el.names.includes(h)));
+			return `<div class="hint" style="margin-top:6px">${esc(h)} · ${cells.filter(Boolean).length}/7</div>
+				<div class="grid">${cells.map((on, i) => `<div style="${on ? "background:var(--accent);color:var(--bg)" : ""}">${WEEKDAYS[days[i].getDay()]}</div>`).join("")}</div>`;
+		}).join("")}</section>` : "";
+	// tasks left open or moved in the previous 7 days, grouped by text
+	const carry = new Map();
+	for (let i = 1; i <= 7; i++) {
+		for (const { el } of sectionItems("day", isoDate(addDays(new Date(), -i)))) {
+			if (el.kind !== "task" || !el.text || !(el.state === "open" || el.state === "moved")) continue;
+			const k = el.text.toLowerCase();
+			carry.set(k, { text: el.text, n: (carry.get(k)?.n || 0) + 1 });
+		}
+	}
+	const carryList = [...carry.values()].sort((a, b) => b.n - a.n);
+	return `
+		<section class="block">
+			<h2>Результати тижня</h2>
+			${renderItems(sectionItems("week", wid)) || '<div class="hint">1–3 результати, які зроблять тиждень вдалим</div>'}
+			${addForm("week", wid, "Результат тижня…")}
+		</section>
+		<section class="block"><h2>Дні</h2>${rows}</section>
+		${habitGrid}
+		<section class="block">
+			<h2>Огляд: висить з останніх 7 днів</h2>
+			${carryList.length ? carryList.map(c => `<div class="item"><span class="chip" style="${c.n >= 3 ? "background:var(--warn-soft);color:var(--warn)" : ""}">${c.n}×</span><div class="txt">${esc(c.text)}</div></div>`).join("")
+				+ '<div class="hint" style="margin-top:6px">3× і більше — розбий на менше або викинь.</div>'
+				: '<div class="hint">Нічого не висить.</div>'}
+		</section>`;
+}
+
+/** Month view: milestones and per-week summary. */
+function viewMonth() {
+	const d = state.cursor, mid = monthId(d);
+	setHeader(`${MONTHS[d.getMonth()]} ${d.getFullYear()}`, "", true);
+	const first = new Date(d.getFullYear(), d.getMonth(), 1, 12);
+	const weeks = [];
+	for (let w = weekStart(first); w.getMonth() === d.getMonth() || w < first; w = addDays(w, 7)) weeks.push(w);
+	const rows = weeks.map(w => {
+		const wid = isoWeek(w), items = sectionItems("week", wid), p = progress(items);
+		const titles = items.filter(i => i.el.kind === "task" && !i.el.sub).map(i => i.el.text);
+		return `<div class="daylink" data-goweek="${isoDate(w)}">
+			<div><b>Т${wid.split("-W")[1]}</b> <span class="hint">${esc(titles.join(" · ") || "—")}</span></div>
+			<span class="hint">${p.total ? `${p.done}/${p.total}` : ""}</span></div>`;
+	}).join("");
+	return `
+		<section class="block">
+			<h2>Віхи місяця</h2>
+			${renderItems(sectionItems("month", mid)) || '<div class="hint">3–5 віх, привʼязаних до цілей</div>'}
+			${addForm("month", mid, "Віха… або > нотатка")}
+		</section>
+		<section class="block"><h2>Тижні</h2>${rows}</section>`;
+}
+
+/** Goals and habits editor. */
+function viewGoals() {
+	setHeader("Цілі", "2–3 фокуси одночасно", false);
+	const goals = sectionItems("goals");
+	const habits = sectionItems("habits").filter(i => i.el.kind === "raw" && i.el.text.trim());
+	const active = goals.filter(i => i.el.kind === "task" && !i.el.sub && i.el.state === "open").length;
+	return `
+		<section class="block">
+			<h2>Цілі <span>${active > 3 ? '<span class="warn">активних більше 3</span>' : ""}</span></h2>
+			${renderItems(goals) || '<div class="hint">Формат: Назва | до 2027-06-01 | готово: критерій</div>'}
+			${addForm("goals", "", "Ціль | до дата | готово: …")}
+			<div class="hint" style="margin-top:6px">Підзадача: ⋯ → «Зробити підзадачею».</div>
+		</section>
+		<section class="block">
+			<h2>Звички</h2>
+			${habits.map(i => `<div class="item"><div class="txt">${esc(i.el.text)}</div><button class="ghost" data-delhabit="${i.idx}" aria-label="Видалити">✕</button></div>`).join("") || '<div class="hint">Додай звички — вони зʼявляться кнопками в кожному дні.</div>'}
+			<form class="add" data-habitform="1">
+				<input placeholder="Нова звичка…" autocomplete="off" enterkeyhint="done">
+				<button type="submit" class="primary" aria-label="Додати">+</button>
+			</form>
+		</section>`;
+}
+
+/** Inbox: capture now, sort later. */
+function viewInbox() {
+	setHeader("Вхідні", "запиши зараз — розбери ввечері", false);
+	return `<section class="block">
+		${addForm("inbox", "", "Що прийшло в голову…")}
+		<div style="margin-top:10px">${renderItems(sectionItems("inbox")) || '<div class="hint">Порожньо</div>'}</div>
+		<div class="hint" style="margin-top:8px">⋯ → «На сьогодні» / «На завтра» / «На тиждень».</div>
+	</section>`;
+}
+
+/** File tab: raw text editor, export / import, AI helper, linked file. */
+function viewFile() {
+	setHeader("Файл", state.fileHandle ? "звʼязано: " + state.fileHandle.name : "зберігається на пристрої", false);
+	const canLink = "showOpenFilePicker" in window;
+	return `
+		<section class="block">
+			<h2>Резервна копія</h2>
+			<div class="row">
+				<button class="primary" id="export">Експорт .plan</button>
+				<button id="import">Імпорт…</button>
+				${canLink ? `<button id="link">${state.fileHandle ? "Інший файл…" : "Звʼязати з файлом…"}</button>` : ""}
+			</div>
+			<div class="hint" style="margin-top:6px">Усе живе в памʼяті браузера на цьому пристрої. Регулярно роби експорт.
+				${canLink ? "На компʼютері «Звʼязати з файлом» пише кожну зміну у файл і підхоплює правки ШІ." : ""}</div>
+		</section>
+		${viewSync()}
+		<section class="block">
+			<h2>ШІ</h2>
+			<div class="row">
+				<button id="copyAi">Копіювати для ШІ</button>
+				<button id="pasteAi">Вставити відповідь ШІ</button>
+			</div>
+			<div class="hint" style="margin-top:6px">Копіює правила формату і весь план. Допиши задачу («сплануй тиждень…») у чаті з ШІ, потім скопіюй його відповідь і натисни «Вставити».</div>
+		</section>
+		<section class="block">
+			<h2>Текст файлу <span>${state.lines.length} рядків</span></h2>
+			<textarea class="rawedit" id="raw" spellcheck="false">${esc(state.lines.join("\n"))}</textarea>
+			<div class="row"><button class="primary" id="saveRaw">Зберегти текст</button><button id="resetRaw">Скасувати</button></div>
+		</section>`;
+}
+
+/** GitHub sync block of the File tab: status, actions and settings form. */
+function viewSync() {
+	const c = readJson(SYNC_KEY) || {};
+	const on = !!syncConfig();
+	const v = k => esc(c[k] || "");
+	const persisted = state.persisted === undefined ? "" : state.persisted
+		? "Браузер не видалятиме дані сам." : "Браузер може очистити дані при нестачі місця — синхронізація важлива.";
+	return `<section class="block">
+		<h2>GitHub <span>${on ? "увімкнено" : "вимкнено"}</span></h2>
+		<div class="hint" id="syncStatus">${esc(syncStatusText())}</div>
+		${on ? `<div class="row">
+			<button class="primary" id="syncNow">Синхронізувати зараз</button>
+			<a href="https://github.com/${encodeURIComponent(c.owner)}/${encodeURIComponent(c.repo)}/commits/${encodeURIComponent(c.branch)}/${c.path.split("/").map(encodeURIComponent).join("/")}" target="_blank" rel="noopener"><button type="button">Історія</button></a>
+			<button id="syncOff">Відключити</button>
+		</div>` : ""}
+		<details ${on ? "" : "open"} style="margin-top:10px">
+			<summary class="hint">Налаштування</summary>
+			<form id="syncForm">
+				<input name="owner" placeholder="Власник (твій логін на GitHub)" value="${v("owner")}" autocapitalize="off" autocomplete="off">
+				<input name="repo" placeholder="Приватний репозиторій, напр. plan-data" value="${v("repo")}" autocapitalize="off" autocomplete="off">
+				<input name="branch" placeholder="Гілка (main)" value="${v("branch") || "main"}" autocapitalize="off" autocomplete="off">
+				<input name="path" placeholder="Файл (plan.plan)" value="${v("path") || "plan.plan"}" autocapitalize="off" autocomplete="off">
+				<input name="device" placeholder="Назва пристрою для комітів (телефон)" value="${v("device")}" autocomplete="off">
+				<input name="token" type="password" placeholder="${c.token ? "Токен збережено — залиш порожнім" : "Fine-grained токен (github_pat_…)"}" autocomplete="off">
+				<button class="primary" type="submit">Зберегти і синхронізувати</button>
+			</form>
+			<div class="hint" style="margin-top:6px">Токен зберігається тільки на цьому пристрої. Давай йому доступ лише до одного приватного репозиторію: Contents → Read and write.</div>
+		</details>
+		${persisted ? `<div class="hint" style="margin-top:6px">${persisted}</div>` : ""}
+	</section>`;
+}
+
+/* ============================================================
+   Money: transactions, budgets, debts, goal costs, currency rates
+   ============================================================ */
+
+const MONEY_RE = /^(\d{4}-\d{2}-\d{2})\s+([+-]?\d+(?:[.,]\d+)?)\s+([A-Z]{3})\s*(.*)$/;
+const PAYMENT_RE = /^\s+(\d{4}-\d{2}-\d{2})\s+(\d+(?:[.,]\d+)?)\s*([A-Z]{3})?\s*$/;
+const BUDGET_RE = /^(.+?)\s+(\d+(?:[.,]\d+)?)(?:\s+([A-Z]{3}))?\s*$/;
+const AMOUNT_FIELD_RE = /^(\d+(?:[.,]\d+)?)\s*([A-Z]{3})$/;
+const PRICE_FIELD_RE = /^ціна:\s*(\d+(?:[.,]\d+)?)\s*([A-Z]{3})?$/i;
+const DUE_FIELD_RE = /^до\s+(\d{4}-\d{2}-\d{2})$/;
+const RATES_API = "https://open.er-api.com/v6/latest/";
+
+/** Parse "12,5" or "12.5" into a number. */
+function num(s) {
+	return Number(String(s).replace(",", "."));
+}
+
+/** Format an amount for display (2 decimals max), optionally with currency. */
+function fmt(n, cur) {
+	const s = (Math.round(n * 100) / 100).toLocaleString("uk-UA", { maximumFractionDigits: 2 });
+	return cur ? `${s} ${cur}` : s;
+}
+
+/** Format an amount for the file (dot decimal, no grouping). */
+function fileNum(n) {
+	return String(Math.round(n * 100) / 100);
+}
+
+/** Parse a money line "YYYY-MM-DD -350 UAH Категорія | опис". */
+function parseMoney(line) {
+	const m = line.match(MONEY_RE);
+	if (!m) return null;
+	const parts = m[4].split(" | ");
+	return { date: m[1], amount: num(m[2]), cur: m[3], cat: (parts[0] || "").trim() || "Інше", note: parts.slice(1).join(" | ").trim() };
+}
+
+/** Serialize a transaction back to a money line. */
+function moneyToLine(t) {
+	return `${t.date} ${t.amount > 0 ? "+" : ""}${fileNum(t.amount)} ${t.cur} ${[t.cat, t.note].filter(Boolean).join(" | ")}`;
+}
+
+/** Turn quick input "350 Їжа Сільпо", "+20000 Дохід", "12.99 EUR Підписки | Spotify" into a transaction. */
+function moneyFromInput(input, base, date) {
+	const m = input.trim().match(/^([+-]?)(\d+(?:[.,]\d+)?)\s*(.*)$/);
+	if (!m) return null;
+	const amount = num(m[2]) * (m[1] === "+" ? 1 : -1);  // no sign = expense (the common case)
+	let rest = m[3].trim(), cur = base;
+	const c = rest.match(/^([A-Za-z]{3})(?=\s|$)/);
+	if (c && isCurrency(c[1])) { cur = c[1].toUpperCase(); rest = rest.slice(3).trim(); }
+	let cat, note;
+	if (rest.includes(" | ")) { const p = rest.split(" | "); cat = p[0]; note = p.slice(1).join(" | "); }
+	else { const sp = rest.indexOf(" "); cat = sp < 0 ? rest : rest.slice(0, sp); note = sp < 0 ? "" : rest.slice(sp + 1); }
+	return { date, amount, cur, cat: cat.trim() || (amount > 0 ? "Дохід" : "Інше"), note: note.trim() };
+}
+
+/** True for an ISO 4217 code the browser knows (so "Gas" is a category, "eur" a currency). */
+function isCurrency(code) {
+	try {
+		return Intl.supportedValuesOf("currency").includes(code.toUpperCase());
+	} catch {
+		return /^(UAH|EUR|USD|PLN|GBP|SEK|NOK|CHF|CZK)$/i.test(code);
+	}
+}
+
+/** Base currency and rates (1 CUR = rate × base) from @rates. */
+function getRates() {
+	let base = "UAH";
+	const r = {};
+	for (const { el } of sectionItems("rates")) {
+		if (el.kind !== "raw") continue;
+		const t = el.text.trim();
+		let m;
+		if ((m = t.match(/^base\s+([A-Za-z]{3})$/i))) base = m[1].toUpperCase();
+		else if ((m = t.match(/^([A-Z]{3})\s+(\d+(?:[.,]\d+)?)$/))) r[m[1]] = num(m[2]);
+	}
+	r[base] = 1;
+	return { base, r };
+}
+
+/** Convert to base currency; null when the rate is unknown. */
+function toBase(amount, cur, R) {
+	return R.r[cur] === undefined ? null : amount * R.r[cur];
+}
+
+/** Transactions of a month: [{idx, t}]. */
+function monthMoney(mid) {
+	return sectionItems("money", mid).map(i => ({ idx: i.idx, t: parseMoney(state.lines[i.idx]) })).filter(x => x.t);
+}
+
+/** Budget for a month: its own @budget or the latest earlier one (budgets carry forward). */
+function budgetFor(mid) {
+	const secs = listSections().filter(s => s.type === "budget" && s.id <= mid).sort((a, b) => a.id < b.id ? -1 : 1);
+	const sec = secs[secs.length - 1];
+	if (!sec) return { id: null, items: [] };
+	const items = [];
+	for (let i = sec.start + 1; i < sec.end; i++) {
+		const l = state.lines[i].trim();
+		if (!l || l.startsWith("#")) continue;
+		const m = l.match(BUDGET_RE);
+		if (m) items.push({ idx: i, cat: m[1].trim(), limit: num(m[2]), cur: m[3] || null });
+	}
+	return { id: sec.id, items };
+}
+
+/** Make sure the month has its own @budget (copied from the carried-forward one). */
+function ensureOwnBudget(mid) {
+	const b = budgetFor(mid);
+	if (b.id === mid) return;
+	const lines = b.items.map(i => state.lines[i.idx].trim());
+	ensureSection("budget", mid);
+	for (const l of lines) appendToSection("budget", mid, l);
+}
+
+/** Debts from @debts: top-level task lines with indented payment lines below. */
+function listDebts() {
+	const s = findSection("debts");
+	if (!s) return [];
+	const out = [];
+	let cur = null;
+	for (let i = s.start + 1; i < s.end; i++) {
+		const line = state.lines[i];
+		const el = parseLine(line);
+		if (el.kind === "task" && !el.sub) {
+			const amountField = el.fields.map(f => f.match(AMOUNT_FIELD_RE)).find(Boolean);
+			const rateField = el.fields.map(f => f.match(/^(\d+(?:[.,]\d+)?)\s*%/)).find(Boolean);
+			const dueField = el.fields.map(f => f.match(DUE_FIELD_RE)).find(Boolean);
+			cur = {
+				idx: i, lastIdx: i, el, name: el.text,
+				total: amountField ? num(amountField[1]) : 0,
+				cur: amountField ? amountField[2] : getRates().base,
+				rate: rateField ? num(rateField[1]) : null,
+				due: dueField ? dueField[1] : null,
+				receivable: el.fields.some(f => /мені винні/i.test(f)),
+				paid: 0,
+			};
+			out.push(cur);
+		} else if (cur && PAYMENT_RE.test(line)) {
+			cur.paid += num(line.match(PAYMENT_RE)[2]);
+			cur.lastIdx = i;
+		} else if (el.kind !== "blank") {
+			cur = null;
+		}
+	}
+	for (const d of out) d.remaining = Math.max(0, d.total - d.paid);
+	return out;
+}
+
+/** Goals (and sub-goals) with a "ціна:" field: what must be saved and by when. */
+function goalCosts() {
+	const out = [];
+	let parentDue = null;
+	for (const { el } of sectionItems("goals")) {
+		if (el.kind !== "task") continue;
+		const due = (el.fields.map(f => f.match(DUE_FIELD_RE)).find(Boolean) || [])[1] || null;
+		if (!el.sub) parentDue = due;
+		const price = el.fields.map(f => f.match(PRICE_FIELD_RE)).find(Boolean);
+		if (!price || el.state === "done" || el.state === "dropped") continue;
+		const deadline = due || (el.sub ? parentDue : null);
+		let months = null;
+		if (deadline) {
+			const d = parseDate(deadline), now = new Date();
+			months = Math.max(1, (d.getFullYear() - now.getFullYear()) * 12 + d.getMonth() - now.getMonth());
+		}
+		out.push({ name: el.text, price: num(price[1]), cur: (price[2] || getRates().base).toUpperCase(), deadline, months });
+	}
+	return out;
+}
+
+/** Bottom-sheet with one input; resolves {act, value} or null. */
+function editSheet(title, value, actions, placeholder = "") {
+	return new Promise(resolve => {
+		const bg = document.createElement("div");
+		bg.className = "sheet-bg";
+		bg.innerHTML = `<div class="sheet" role="dialog" aria-label="${esc(title)}">
+			<p style="margin-top:0"><b>${esc(title)}</b></p>
+			<input id="editSheetInput" value="${esc(value)}" placeholder="${esc(placeholder)}" enterkeyhint="done" autocomplete="off">
+			<div class="acts">${actions.map(([k, t]) => `<button data-act="${k}" ${k === "delete" ? 'style="color:var(--warn)"' : ""}>${esc(t)}</button>`).join("")}
+				<button data-act="close">Закрити</button></div>
+		</div>`;
+		document.body.appendChild(bg);
+		const input = bg.querySelector("input");
+		const done = res => { bg.remove(); resolve(res); };
+		bg.addEventListener("click", e => {
+			if (e.target === bg) return done(null);
+			const act = e.target.closest("[data-act]")?.dataset.act;
+			if (act) done(act === "close" ? null : { act, value: input.value });
+		});
+		input.addEventListener("keydown", e => { if (e.key === "Enter") done({ act: actions[0][0], value: input.value }); });
+		setTimeout(() => input.focus(), 50);
+	});
+}
+
+/** Edit or delete one transaction line. */
+async function editTransaction(idx) {
+	const res = await editSheet("Запис", state.lines[idx], [["save", "Зберегти"], ["delete", "Видалити"]]);
+	if (!res) return;
+	if (res.act === "delete") return mutate(() => state.lines.splice(idx, 1));
+	const t = parseMoney(res.value.trim());
+	if (!t) return toast("Формат: 2026-11-19 -350 UAH Категорія | опис");
+	mutate(() => { state.lines[idx] = moneyToLine(t); });
+}
+
+/** Change or remove a budget category for the current month. */
+async function editBudget(cat) {
+	const mid = monthId(state.cursor), R = getRates();
+	const item = budgetFor(mid).items.find(i => i.cat === cat);
+	const res = await editSheet(`Бюджет: ${cat}`, item ? `${fileNum(item.limit)}${item.cur ? " " + item.cur : ""}` : "", [["save", "Зберегти"], ["delete", "Прибрати"]], `ліміт, напр. 6000 або 200 ${R.base === "EUR" ? "USD" : "EUR"}`);
+	if (!res) return;
+	const m = res.value.trim().match(/^(\d+(?:[.,]\d+)?)\s*([A-Za-z]{3})?$/);
+	if (res.act === "save" && !m) return toast("Вкажи суму, напр. 6000");
+	mutate(() => {
+		ensureOwnBudget(mid);
+		const own = budgetFor(mid).items.find(i => i.cat === cat);
+		if (res.act === "delete") { if (own) state.lines.splice(own.idx, 1); return; }
+		const line = `${cat} ${fileNum(num(m[1]))}${m[2] ? " " + m[2].toUpperCase() : ""}`;
+		if (own) state.lines[own.idx] = line;
+		else appendToSection("budget", mid, line);
+	});
+}
+
+/** Debt menu: record a payment, edit the line, or delete the debt. */
+async function debtActions(idx) {
+	const d = listDebts().find(x => x.idx === idx);
+	if (!d) return;
+	const res = await editSheet(`${d.name}: лишилось ${fmt(d.remaining, d.cur)}`, "",
+		[["pay", "Записати платіж"], ["edit", "Редагувати рядок"], ["delete", "Видалити борг"]], `сума платежу, ${d.cur}`);
+	if (!res) return;
+	if (res.act === "edit") {
+		const e2 = await editSheet("Рядок боргу", state.lines[idx], [["save", "Зберегти"]]);
+		if (e2 && parseLine(e2.value).kind === "task") mutate(() => { state.lines[idx] = e2.value.trim(); });
+		return;
+	}
+	if (res.act === "delete") {
+		if (!confirm(`Видалити «${d.name}» разом із платежами?`)) return;
+		return mutate(() => state.lines.splice(d.idx, d.lastIdx - d.idx + 1));
+	}
+	const amount = num(res.value.trim());
+	if (!(amount > 0)) return toast("Вкажи суму платежу");
+	const today = isoDate(new Date());
+	mutate(() => {
+		state.lines.splice(d.lastIdx + 1, 0, `  ${today} ${fileNum(amount)} ${d.cur}`);
+		if (d.remaining - amount <= 0.005) state.lines[d.idx] = taskToLine({ ...d.el, state: "done" });
+		// a payment is also real cash flow: money out for my debts, money in when someone pays me back
+		appendToSection("money", monthId(new Date()), moneyToLine({ date: today, amount: d.receivable ? amount : -amount, cur: d.cur, cat: "Борги", note: d.name }));
+	});
+	toast(d.remaining - amount <= 0.005 ? "Борг закрито 🎉" : `Лишилось ${fmt(d.remaining - amount, d.cur)}`);
+}
+
+/** Handle quick-add forms of the Money tab (transaction, budget category, debt). */
+function submitMoneyForm(form) {
+	const input = form.querySelector("input"), value = input.value.trim();
+	if (!value) return;
+	const R = getRates(), mid = monthId(state.cursor);
+	const kind = form.dataset.money;
+	if (kind === "tx") {
+		// date: today when looking at the current month, otherwise the 1st of the shown month
+		const date = monthId(new Date()) === mid ? isoDate(new Date()) : `${mid}-01`;
+		const t = moneyFromInput(value, R.base, date);
+		if (!t) return toast("Почни з суми: 350 Їжа Сільпо");
+		mutate(() => appendToSection("money", mid, moneyToLine(t)));
+	} else if (kind === "budget") {
+		const m = value.match(BUDGET_RE);
+		if (!m) return toast("Формат: Їжа 6000");
+		mutate(() => { ensureOwnBudget(mid); appendToSection("budget", mid, `${m[1].trim()} ${fileNum(num(m[2]))}${m[3] ? " " + m[3] : ""}`); });
+	} else if (kind === "debt") {
+		const t = taskFromInput(value);
+		if (!t.fields.some(f => AMOUNT_FIELD_RE.test(f))) return toast("Формат: Назва | 500 USD | 20% | до 2027-01-01");
+		mutate(() => appendToSection("debts", "", taskToLine(t)));
+	}
+	requestAnimationFrame(() => document.querySelector(`form[data-money="${kind}"] input`)?.focus());
+}
+
+/** Fetch current rates for every currency used in the plan and write them to @rates. */
+async function updateRates() {
+	const R = getRates();
+	const used = new Set(Object.keys(R.r));
+	for (const l of state.lines) {
+		const m = l.match(MONEY_RE) || l.match(PAYMENT_RE);
+		if (m && m[3]) used.add(m[3]);
+	}
+	for (const d of listDebts()) used.add(d.cur);
+	for (const g of goalCosts()) used.add(g.cur);
+	used.delete(R.base);
+	if (!used.size) return toast("Інших валют, крім " + R.base + ", у плані немає");
+	const ctrl = new AbortController();
+	const timer = setTimeout(() => ctrl.abort(), 10000);
+	try {
+		const res = await fetch(RATES_API + R.base, { signal: ctrl.signal, cache: "no-store" });
+		const data = await res.json();
+		if (!res.ok || data.result !== "success") throw new Error(data["error-type"] || res.status);
+		const missing = [];
+		mutate(() => {
+			const s = ensureSection("rates");
+			// drop old currency lines and the old timestamp comment, keep "base" and anything unknown
+			for (let i = s.end - 1; i > s.start; i--) {
+				if (/^[A-Z]{3}\s+\d/.test(state.lines[i].trim()) || state.lines[i].startsWith("# курси")) state.lines.splice(i, 1);
+			}
+			if (!sectionItems("rates").some(i => /^base\s/i.test(state.lines[i.idx].trim()))) appendToSection("rates", "", `base ${R.base}`);
+			for (const c of [...used].sort()) {
+				if (!data.rates[c]) { missing.push(c); continue; }
+				appendToSection("rates", "", `${c} ${(1 / data.rates[c]).toFixed(4)}`);
+			}
+			appendToSection("rates", "", `# курси оновлено ${isoDate(new Date())}, open.er-api.com`);
+		});
+		toast(missing.length ? "Немає курсу для " + missing.join(", ") : "Курси оновлено");
+	} catch (err) {
+		console.error("[ERROR] Rates update:", err);
+		toast(err.name === "AbortError" ? "Сервіс курсів не відповів, спробуй пізніше" : "Не вдалося оновити курси. Можна вписати вручну в @rates");
+	} finally {
+		clearTimeout(timer);
+	}
+}
+
+/** Money tab: month summary, budget, transactions, debts, goal savings, rates, tips. */
+function viewMoney() {
+	const d = state.cursor, mid = monthId(d), R = getRates();
+	setHeader(`Гроші · ${MONTHS[d.getMonth()]}`, String(d.getFullYear()), true);
+	const missing = new Set();
+	const B = (amount, cur) => { const x = toBase(amount, cur, R); if (x === null) missing.add(cur); return x ?? 0; };
+	const tx = monthMoney(mid);
+	let income = 0, spent = 0;
+	const byCat = new Map();
+	for (const { t } of tx) {
+		const b = B(t.amount, t.cur);
+		if (b > 0) income += b;
+		else { spent -= b; byCat.set(t.cat, (byCat.get(t.cat) || 0) - b); }
+	}
+	const budget = budgetFor(mid);
+	let budgetTotal = 0;
+	const budgetRows = budget.items.map(i => {
+		const limit = B(i.limit, i.cur || R.base);
+		budgetTotal += limit;
+		const s = byCat.get(i.cat) || 0;
+		byCat.delete(i.cat);
+		const pct = limit ? Math.min(100, Math.round(s / limit * 100)) : 100;
+		return `<div class="daylink" data-budgetcat="${esc(i.cat)}" style="display:block">
+			<div style="display:flex;justify-content:space-between"><span>${esc(i.cat)}</span>
+			<span class="hint ${s > limit ? "warn" : ""}">${fmt(s)} / ${fmt(limit)} ${R.base}</span></div>
+			<div class="bar"><i class="${s > limit ? "over" : ""}" style="width:${pct}%"></i></div></div>`;
+	}).join("");
+	const unbudgeted = [...byCat.entries()].sort((a, b) => b[1] - a[1]);
+	const cats = [...new Set([...budget.items.map(i => i.cat), ...tx.map(x => x.t.cat)])];
+	const txRows = [...tx].sort((a, b) => a.t.date === b.t.date ? b.idx - a.idx : a.t.date < b.t.date ? 1 : -1).map(({ idx, t }) =>
+		`<div class="tx" data-tx="${idx}"><span class="d">${Number(t.date.slice(8))}</span>
+			<span class="w"><span class="chip">${esc(t.cat)}</span> ${esc(t.note)}</span>
+			<span class="a ${t.amount > 0 ? "inc" : ""}">${t.amount > 0 ? "+" : ""}${fmt(t.amount, t.cur === R.base ? "" : t.cur)}</span></div>`).join("");
+
+	const debts = listDebts();
+	const open = debts.filter(x => x.remaining > 0 && x.el.state !== "done");
+	const owe = open.filter(x => !x.receivable), owed = open.filter(x => x.receivable);
+	const first = [...owe].filter(x => x.rate !== null).sort((a, b) => b.rate - a.rate)[0];
+	const debtRow = x => `<div class="daylink" data-debt="${x.idx}" style="display:block">
+		<div style="display:flex;justify-content:space-between;gap:8px"><span>${esc(x.name)}${x === first ? ' <span class="chip" style="background:var(--warn-soft);color:var(--warn)">гасити першим</span>' : ""}</span>
+		<span class="hint">${fmt(x.remaining, x.cur)}</span></div>
+		<div class="hint">${[x.rate !== null ? x.rate + "% річних" : "", x.due ? "до " + x.due : "", `сплачено ${fmt(x.paid)} з ${fmt(x.total, x.cur)}`].filter(Boolean).join(" · ")}</div>
+		<div class="bar"><i style="width:${x.total ? Math.round(x.paid / x.total * 100) : 0}%"></i></div></div>`;
+	const oweTotal = owe.reduce((s, x) => s + B(x.remaining, x.cur), 0);
+
+	const costs = goalCosts();
+	const perMonth = costs.reduce((s, c) => s + (c.months ? B(c.price, c.cur) / c.months : 0), 0);
+
+	const rateList = Object.entries(R.r).filter(([c]) => c !== R.base).map(([c, v]) => `${c} ${fmt(v)}`).join(" · ");
+	return `
+		<section class="block">
+			<div class="kpis">
+				<div><span>Дохід</span><b style="color:var(--accent)">${fmt(income)}</b></div>
+				<div><span>Витрати</span><b>${fmt(spent)}</b></div>
+				<div><span>Залишок</span><b class="${income - spent < 0 ? "warn" : ""}">${fmt(income - spent)}</b></div>
+			</div>
+			<div class="hint" style="margin-top:6px">У ${R.base}${income > 0 ? ` · відкладено ${Math.round((income - spent) / income * 100)}% доходу` : ""}${missing.size ? ` · <span class="warn">немає курсу: ${esc([...missing].join(", "))}</span>` : ""}</div>
+			<form class="add" data-money="tx">
+				<input placeholder="350 Їжа Сільпо · +20000 Дохід · 12 EUR Підписки" autocomplete="off" enterkeyhint="done">
+				<button type="submit" class="primary" aria-label="Додати">+</button>
+			</form>
+			${cats.length ? `<div class="habits" style="margin-top:8px">${cats.map(c => `<button type="button" data-catpick="${esc(c)}">${esc(c)}</button>`).join("")}</div>` : ""}
+		</section>
+		<section class="block">
+			<h2>Бюджет <span>${budgetTotal ? `${fmt(spent)} / ${fmt(budgetTotal)}` : ""}</span></h2>
+			${budget.id && budget.id !== mid ? `<div class="hint">Перенесено з ${budget.id}. Зміна створить бюджет цього місяця.</div>` : ""}
+			${budgetRows || '<div class="hint">Розпиши місяць наперед: категорія і ліміт.</div>'}
+			${unbudgeted.length ? `<div class="hint" style="margin-top:8px">Поза бюджетом: ${unbudgeted.map(([c, v]) => `${esc(c)} ${fmt(v)}`).join(" · ")}</div>` : ""}
+			<form class="add" data-money="budget"><input placeholder="Категорія ліміт, напр. Їжа 6000" autocomplete="off" enterkeyhint="done"><button type="submit" aria-label="Додати">+</button></form>
+		</section>
+		<section class="block">
+			<h2>Записи <span>${tx.length}</span></h2>
+			${txRows || '<div class="hint">Записів цього місяця немає. Чек можна дати ШІ — він допише рядки.</div>'}
+		</section>
+		<section class="block">
+			<h2>Борги <span>${owe.length ? fmt(oweTotal) + " " + R.base : ""}</span></h2>
+			${owe.map(debtRow).join("") || '<div class="hint">Боргів немає.</div>'}
+			${owed.length ? `<div class="hint" style="margin-top:8px">Мені винні:</div>${owed.map(debtRow).join("")}` : ""}
+			<form class="add" data-money="debt"><input placeholder="Назва | 500 USD | 20% | до 2027-01-01" autocomplete="off" enterkeyhint="done"><button type="submit" aria-label="Додати">+</button></form>
+		</section>
+		<section class="block">
+			<h2>Відкладати під цілі <span>${perMonth ? `≈ ${fmt(perMonth)} ${R.base}/міс` : ""}</span></h2>
+			${costs.map(c => `<div class="item"><div class="txt">${esc(c.name)}<br><span class="hint">${fmt(c.price, c.cur)}${c.deadline ? ` · до ${c.deadline} · ≈ ${fmt(B(c.price, c.cur) / c.months)} ${R.base}/міс` : " · без дедлайну"}</span></div></div>`).join("")
+				|| '<div class="hint">Додай цілі поле «ціна: 100 USD», і тут зʼявиться, скільки відкладати щомісяця.</div>'}
+		</section>
+		<section class="block">
+			<h2>Курси <span>база ${R.base}</span></h2>
+			<div class="hint">${rateList ? esc(rateList) : "Курсів ще немає."}</div>
+			<div class="row"><button id="updateRates">Оновити курси</button></div>
+		</section>
+		<section class="block">
+			<details><summary class="hint">Як вести бюджет</summary>
+			<ul class="tips">
+				<li><b>Записуй одразу.</b> Сума і категорія, 5 секунд. Чеки за день можна віддати ШІ фото, він допише рядки.</li>
+				<li><b>Бюджет до початку місяця.</b> Кожна гривня доходу має роль: обовʼязкові, борги, подушка, цілі, решта на життя.</li>
+				<li><b>Спершу подушка.</b> Мінімум 1 місяць витрат, далі 3–6 місяців. Вона рятує від нових боргів.</li>
+				<li><b>Борги.</b> Мінімальні платежі по всіх, усе зайве на борг з найвищим %. Апка позначає його «гасити першим».</li>
+				<li><b>Великі цілі.</b> Ділиш ціну на місяці до дедлайну і відкладаєш цю суму щомісяця.</li>
+				<li><b>Огляд раз на тиждень.</b> 10 хвилин: витрати проти бюджету, що підправити.</li>
+			</ul></details>
+		</section>`;
+}
+
+/* ============================================================
+   Item actions sheet
+   ============================================================ */
+
+/** Open the action sheet for a task or note on a given line. */
+function openSheet(idx) {
+	const el = parseLine(state.lines[idx]);
+	const sec = listSections().find(s => idx > s.start && idx < s.end);
+	if (!sec || (el.kind !== "task" && el.kind !== "note")) return;
+	const isTask = el.kind === "task";
+	const value = isTask ? `${el.main ? "! " : ""}${el.time ? el.time + " " : ""}${[el.text, ...el.fields].join(" | ")}` : el.text;
+	const acts = [];
+	if (isTask) {
+		acts.push(["main", el.main ? "Зняти «головна»" : "Зробити головною"]);
+		if (sec.type === "goals" || sec.type === "week" || sec.type === "month") acts.push(["sub", el.sub ? "Зробити звичайною" : "Зробити підзадачею"]);
+		if (sec.type === "day") acts.push(["tomorrow", "Перенести на завтра"]);
+		if (sec.type === "inbox" || sec.type === "goals" || sec.type === "week") acts.push(["today", "На сьогодні"], ["totomorrow", "На завтра"]);
+		if (sec.type === "inbox") acts.push(["toweek", "На тиждень"]);
+		acts.push(["drop", el.state === "dropped" ? "Відновити" : "Скасувати"]);
+	}
+	acts.push(["up", "Вище"], ["down", "Нижче"], ["delete", "Видалити"]);
+	const bg = document.createElement("div");
+	bg.className = "sheet-bg";
+	bg.innerHTML = `<div class="sheet" role="dialog" aria-label="Дії">
+		<input id="sheetInput" value="${esc(value)}" enterkeyhint="done">
+		<div class="acts">${acts.map(([k, t]) => `<button data-act="${k}" ${k === "delete" ? 'style="color:var(--warn)"' : ""}>${t}</button>`).join("")}
+			<button data-act="close">Закрити</button><button class="primary" data-act="save">Зберегти</button></div>
+	</div>`;
+	document.body.appendChild(bg);
+	const close = () => bg.remove();
+	bg.addEventListener("click", e => {
+		if (e.target === bg) return close();
+		const act = e.target.closest("[data-act]")?.dataset.act;
+		if (!act) return;
+		close();
+		if (act !== "close") itemAction(idx, act, document.getElementById("sheetInput")?.value ?? value);
+	});
+	bg.querySelector("#sheetInput").addEventListener("keydown", e => {
+		if (e.key === "Enter") { const v = e.target.value; close(); itemAction(idx, "save", v); }
+	});
+}
+
+/** Perform an action from the sheet on line idx. */
+function itemAction(idx, act, inputValue) {
+	const el = parseLine(state.lines[idx]);
+	const copyOf = t => taskToLine({ ...t, state: "open", sub: false });
+	const moveTo = (type, id, markOld) => {
+		const line = copyOf(el);
+		if (markOld) state.lines[idx] = taskToLine({ ...el, state: "moved" });
+		else state.lines.splice(idx, 1);
+		appendToSection(type, id, line);
+	};
+	const tomorrow = isoDate(addDays(new Date(), 1));
+	mutate(() => {
+		switch (act) {
+			case "save":
+				if (el.kind === "note") state.lines[idx] = "> " + inputValue.trim();
+				else {
+					const t = taskFromInput(inputValue);
+					state.lines[idx] = taskToLine({ ...t, state: el.state, sub: el.sub });
+				}
+				break;
+			case "main": state.lines[idx] = taskToLine({ ...el, main: !el.main }); break;
+			case "sub": state.lines[idx] = taskToLine({ ...el, sub: !el.sub }); break;
+			case "drop": state.lines[idx] = taskToLine({ ...el, state: el.state === "dropped" ? "open" : "dropped" }); break;
+			case "tomorrow": {
+				const sec = listSections().find(s => idx > s.start && idx < s.end);
+				moveTo("day", isoDate(addDays(parseDate(sec.id), 1)), true);
+				break;
+			}
+			case "today": moveTo("day", isoDate(new Date()), false); break;
+			case "totomorrow": moveTo("day", tomorrow, false); break;
+			case "toweek": moveTo("week", isoWeek(new Date()), false); break;
+			case "up": case "down": {
+				const sec = listSections().find(s => idx > s.start && idx < s.end);
+				const j = act === "up" ? idx - 1 : idx + 1;
+				if (j > sec.start && j < sec.end && state.lines[j].trim() !== "") [state.lines[idx], state.lines[j]] = [state.lines[j], state.lines[idx]];
+				break;
+			}
+			case "delete": state.lines.splice(idx, 1); break;
+			default: console.warn("[WARNING] Unknown action", act); break;
+		}
+	});
+}
+
+/* ============================================================
+   Events
+   ============================================================ */
+
+document.getElementById("tabs").addEventListener("click", e => {
+	const b = e.target.closest("[data-tab]");
+	if (!b) return;
+	if (b.dataset.tab === state.tab && state.tab !== "file") state.cursor = new Date();
+	state.tab = b.dataset.tab;
+	render();
+	scrollTo(0, 0);
+});
+
+/** Move the cursor date by one step of the current tab's period. */
+function shift(dir) {
+	const c = state.cursor;
+	if (state.tab === "day") state.cursor = addDays(c, dir);
+	else if (state.tab === "week") state.cursor = addDays(c, 7 * dir);
+	else if (state.tab === "month" || state.tab === "money") state.cursor = new Date(c.getFullYear(), c.getMonth() + dir, 1, 12);
+	render();
+}
+document.getElementById("prev").addEventListener("click", () => shift(-1));
+document.getElementById("next").addEventListener("click", () => shift(1));
+document.getElementById("title").addEventListener("click", () => { state.cursor = new Date(); render(); });
+
+document.getElementById("main").addEventListener("click", async e => {
+	const t = e.target;
+	const toggle = t.closest("[data-toggle]");
+	if (toggle) {
+		const idx = Number(toggle.dataset.toggle), el = parseLine(state.lines[idx]);
+		return mutate(() => { state.lines[idx] = taskToLine({ ...el, state: el.state === "done" ? "open" : "done" }); });
+	}
+	const edit = t.closest("[data-edit]");
+	if (edit) return openSheet(Number(edit.dataset.edit));
+	const habit = t.closest("[data-habit]");
+	if (habit) return toggleHabit(habit.dataset.habit);
+	const goday = t.closest("[data-goday]");
+	if (goday) { state.cursor = parseDate(goday.dataset.goday); state.tab = "day"; return render(); }
+	const goweek = t.closest("[data-goweek]");
+	if (goweek) { state.cursor = parseDate(goweek.dataset.goweek); state.tab = "week"; return render(); }
+	const catPick = t.closest("[data-catpick]");
+	if (catPick) {
+		const input = document.querySelector('form[data-money="tx"] input');
+		const words = input.value.trim().split(/\s+/).filter(Boolean);
+		input.value = (words.length ? words.join(" ") + " " : "") + catPick.dataset.catpick + " ";
+		return input.focus();
+	}
+	const txRow = t.closest("[data-tx]");
+	if (txRow) return editTransaction(Number(txRow.dataset.tx));
+	const debtRow = t.closest("[data-debt]");
+	if (debtRow) return debtActions(Number(debtRow.dataset.debt));
+	const budgetRow = t.closest("[data-budgetcat]");
+	if (budgetRow) return editBudget(budgetRow.dataset.budgetcat);
+	const delhabit = t.closest("[data-delhabit]");
+	if (delhabit) return mutate(() => state.lines.splice(Number(delhabit.dataset.delhabit), 1));
+	switch (t.id) {
+		case "export": return exportFile();
+		case "import": return document.getElementById("importInput").click();
+		case "link": return linkFile();
+		case "copyAi": return copyForAi();
+		case "pasteAi": return pasteFromAi();
+		case "saveRaw": {
+			const v = document.getElementById("raw").value;
+			if (!looksLikePlan(v) && !confirm("Текст не схожий на .plan (немає секцій @). Зберегти все одно?")) return;
+			await setText(v);
+			return toast("Збережено");
+		}
+		case "resetRaw": return render();
+		case "syncNow": return syncNow({ manual: true });
+		case "syncOff": return disconnectSync();
+		case "updateRates": return updateRates();
+		default: break;
+	}
+});
+
+document.getElementById("main").addEventListener("submit", e => {
+	e.preventDefault();
+	if (e.target.id === "syncForm") return saveSyncSettings(e.target);
+	if (e.target.dataset.money) return submitMoneyForm(e.target);
+	const form = e.target, input = form.querySelector("input");
+	const value = input.value.trim();
+	if (!value) return;
+	if (form.dataset.habitform) {
+		const name = value.replace(/,/g, " ").replace(/\s+/g, " ");
+		if (habitList().includes(name)) return toast("Така звичка вже є");
+		return mutate(() => appendToSection("habits", "", name));
+	}
+	const line = form.dataset.note || value.startsWith(">") ? "> " + value.replace(/^>\s*/, "") : taskToLine(taskFromInput(value));
+	mutate(() => appendToSection(form.dataset.type, form.dataset.id, line));
+	requestAnimationFrame(() => document.querySelector(`form.add[data-type="${form.dataset.type}"]${form.dataset.note ? "[data-note]" : ":not([data-note])"} input`)?.focus());
+});
+
+document.getElementById("importInput").addEventListener("change", e => {
+	const f = e.target.files[0];
+	e.target.value = "";
+	if (f) importFile(f);
+});
+
+/** Toggle a habit name in the current day's "habits:" line. */
+function toggleHabit(name) {
+	const id = isoDate(state.cursor);
+	mutate(() => {
+		const line = sectionItems("day", id).find(i => i.el.kind === "habits");
+		if (!line) { appendToSection("day", id, `habits: ${name}`); return; }
+		const set = new Set(line.el.names);
+		set.has(name) ? set.delete(name) : set.add(name);
+		if (set.size) state.lines[line.idx] = `habits: ${[...set].join(", ")}`;
+		else state.lines.splice(line.idx, 1);
+	});
+}
+
+/** Copy the format rules plus the whole plan for pasting into an AI chat. */
+async function copyForAi() {
+	const text = AI_PROMPT + "\n\n```\n" + state.lines.join("\n") + "\n```";
+	try {
+		await navigator.clipboard.writeText(text);
+		toast("Скопійовано — встав у чат з ШІ і допиши завдання");
+	} catch (err) {
+		console.warn("[WARNING] Clipboard write failed:", err);
+		const raw = document.getElementById("raw");
+		raw.value = text; raw.select();
+		toast("Не вдалося скопіювати автоматично — виділено, скопіюй вручну");
+	}
+}
+
+/** Take the AI's answer from the clipboard (code block or plain text) and load it after confirmation. */
+async function pasteFromAi() {
+	let text;
+	try {
+		text = await navigator.clipboard.readText();
+	} catch (err) {
+		console.warn("[WARNING] Clipboard read failed:", err);
+		return toast("Немає доступу до буфера — встав відповідь у поле «Текст файлу»");
+	}
+	const block = text.match(/```[^\n]*\n([\s\S]*?)```/);
+	const body = (block ? block[1] : text).replace(/\s+$/, "") + "\n";
+	if (!looksLikePlan(body)) return toast("У буфері немає плану (секцій @)");
+	const before = state.lines.length, after = body.split("\n").length;
+	if (!confirm(`Замінити план відповіддю ШІ? Було ${before} рядків, стане ${after}.`)) return;
+	await setText(body);
+	toast("План оновлено");
+}
+
+window.addEventListener("focus", checkLinkedFile);
+setInterval(checkLinkedFile, 4000);
+
+/* ============================================================
+   Boot
+   ============================================================ */
+
+setText(loadStored() ?? EMPTY_DOC, { persist: false });
+updateSyncBadge();
+
+// Ask the browser not to evict our data under storage pressure.
+if (navigator.storage && navigator.storage.persist) {
+	navigator.storage.persist()
+		.then(ok => { state.persisted = ok; if (state.tab === "file") render(); })
+		.catch(err => console.warn("[WARNING] storage.persist:", err));
+}
+
+// Sync triggers: start, back to the app, network back, leaving the app.
+syncNow();
+document.addEventListener("visibilitychange", () => {
+	if (document.visibilityState === "hidden") { if (isDirty()) syncNow({ keepalive: true }); }
+	else syncNow();
+});
+window.addEventListener("online", () => syncNow());
+if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+	navigator.serviceWorker.register("sw.js").catch(err => console.warn("[WARNING] Service worker not registered:", err));
+}
+</script>
+</body>
+</html>

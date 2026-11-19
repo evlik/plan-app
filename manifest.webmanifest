@@ -1,0 +1,14 @@
+{
+	"name": "План",
+	"short_name": "План",
+	"description": "Цілі, місяці, тижні й дні в одному текстовому файлі",
+	"start_url": "./",
+	"scope": "./",
+	"display": "standalone",
+	"background_color": "#f6f5f1",
+	"theme_color": "#2f6f5e",
+	"lang": "uk",
+	"icons": [
+		{ "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+	]
+}
