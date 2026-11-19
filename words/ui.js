@@ -211,6 +211,12 @@
 		const merged = remote ? C.mergeProgress(W.progress, remote.progress) : W.progress;
 		const mergedText = C.progressToText(merged);
 		if (mergedText !== localText) {
+			if ((merged.epoch || 0) !== (W.progress.epoch || 0)) {
+				// progress was replaced (import / reset): the running session belongs to the old state
+				stopTimers();
+				W.sess = null;
+				console.info("[INFO] Words progress replaced by epoch", merged.epoch);
+			}
 			W.progress = merged;
 			try { localStorage.setItem(PROGRESS_KEY, mergedText); } catch (err) { console.error("[ERROR] Saving merged words progress:", err); }
 		}

@@ -339,6 +339,19 @@ test("прогрес: злиття бере пізнішу зміну кожно
 	assert.strictEqual(C.progressToText(C.mergeProgress(b, a)), C.progressToText(m));
 });
 
+test("прогрес: вище покоління (імпорт) замінює, а не зливає", () => {
+	const old = C.emptyProgress(), imported = C.emptyProgress();
+	C.setKnown(old, 425, true, Date.now() + 10 * C.DAY_MS);   // future-dated junk must not survive
+	C.graduate(imported, 1, 100);
+	imported.epoch = 1;
+	for (const m of [C.mergeProgress(old, imported), C.mergeProgress(imported, old)]) {
+		assert.strictEqual(m.epoch, 1);
+		assert.ok(m.cards[1] && !m.cards[425]);
+	}
+	const back = C.normalizeProgress(JSON.parse(C.progressToText(imported)));
+	assert.strictEqual(back.epoch, 1);
+});
+
 test("прогрес: normalizeProgress відкидає сміття і читає власний текст", () => {
 	assert.throws(() => C.normalizeProgress(null));
 	const p = C.emptyProgress();

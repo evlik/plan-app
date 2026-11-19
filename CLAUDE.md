@@ -30,6 +30,7 @@
 | `words/audio/` | 3832 OGG: `w{id}.ogg` — слово, `s{id}_0.ogg` — приклад. Незмінні, кешуються окремо |
 | `words/icons/` | Одноколірні SVG, тонуються через CSS `mask` |
 | `tools/build_course.py` | Перебудова курсу з вихідників Micro-Sprint: `python tools/build_course.py --src <клон micro-sprint-srs> [--copy-audio]` |
+| `tools/import_microsprint_db.py` | Прогрес зі старої Android-апки → `words.json` з новим `epoch` (база копіюється через `adb exec-out run-as`, інструкція в docstring) |
 | `tools/test_words_core.js` | Юніт-тести `words/core.js` (порт Kotlin-тестів + прогрес і злиття): `node tools/test_words_core.js` |
 | `sw.js` | Service worker: network-first з `cache: "no-cache"`, кеш як офлайн-запас; озвучка — cache-first в окремому `words-audio-v1`, який не видаляється при оновленні. **Після кожної зміни `index.html` або `words/*` підніми `CACHE`** (`plan-v6` → `plan-v7`), інакше телефони тримають стару версію |
 | `manifest.webmanifest`, `icon.svg` | Встановлення на головний екран |
@@ -74,7 +75,9 @@ mutate(() => { /* змінити state.lines */ });  // → save() → localStor
 Порт Android-апки Micro-Sprint. Концепція — `docs/CONCEPT.md` у `micro-sprint-srs`; поведінка збігається з Kotlin-кодом
 (`MicroDeckScheduler`, `Fsrs`, `WordInput`, `SessionViewModel`). Не міняй правила навчання без потреби: вони вивірені тестами.
 
-- **Прогрес** — `localStorage["words.progress.v1"]` = `{v, su, settings, cards: {id: {st, lv, iv, due, s, d, last, grad, lapses, u}}}`.
+- **Прогрес** — `localStorage["words.progress.v1"]` = `{v, epoch, su, settings, cards: {id: {st, lv, iv, due, s, d, last, grad, lapses, u}}}`.
+  `epoch` — покоління: документ з вищим `epoch` **замінює** інший цілком, без злиття. Піднімай його лише для свідомого
+  імпорту чи скидання (злиття не вміє видаляти картки і не переможе картки з датою з майбутнього).
   Слова без запису — NEW. `st`: MICRO/COOLING/REVIEW/KNOWN, `lv` — рівень мікро-колоди (0–3), `s`/`d` — FSRS, `grad` — час випуску
   (для цілі дня і статистики), `u` — час останньої зміни картки (за ним зливаються пристрої), `su` — те саме для `settings`.
   Усі зміни — через функції core.js (`saveMicroLevel`, `graduate`, `reviewAnswered`, `setKnown`…), потім `saveProgress()`.
@@ -132,6 +135,8 @@ python -m http.server 5173 --bind 127.0.0.1
 - Сесію слів до кінця (інтервали 45 с – 5 хв) проганяй, підмінивши годинник **до** відкриття вкладки:
   `const real = Date.now.bind(Date); window.__off = 0; Date.now = () => real() + window.__off;`, а на екрані паузи збільшуй `__off`.
   Планувальник бере `Date.now` при створенні сесії, тому підміна після старту сесії не діє.
+  **Ніколи не тестуй з налаштованою справжньою синхронізацією**: картки з датою з майбутнього потраплять у `words.json`
+  і перебиватимуть справжні (так уже сталося 19.11.2026, виправлено імпортом з `epoch: 1`).
 - Після тестів: `localStorage.clear()`, видали кеші (`caches.keys()` → `caches.delete`) — озвучка займає ~40 МБ.
 - У вбудованому браузері Claude Desktop service worker реєструється тільки на сервері, запущеному через `preview_start`. Якщо сервер запущено з Bash, реєстрація падає з «unknown error fetching the script», і це проблема середовища, а не коду.
 

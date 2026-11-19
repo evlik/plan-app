@@ -386,9 +386,9 @@
 		return { goal: 40, deck: 5, auto: false, secs: 3, habit: null, introDone: false };
 	}
 
-	/** Empty progress document. */
+	/** Empty progress document. `epoch` grows on a deliberate reset/import: a higher epoch replaces, never merges. */
 	function emptyProgress() {
-		return { v: 1, cards: {}, settings: defaultSettings(), su: 0 };
+		return { v: 1, epoch: 0, cards: {}, settings: defaultSettings(), su: 0 };
 	}
 
 	/** Validate and normalise a progress object read from storage or GitHub; throws on garbage. */
@@ -397,6 +397,7 @@
 		const out = emptyProgress();
 		out.settings = { ...out.settings, ...(p.settings && typeof p.settings === "object" ? p.settings : {}) };
 		out.su = Number(p.su) || 0;
+		out.epoch = Number(p.epoch) || 0;
 		for (const [id, c] of Object.entries(p.cards)) {
 			if (!c || !STAGES.includes(c.st) || !/^\d+$/.test(id)) continue;
 			out.cards[id] = {
@@ -515,9 +516,13 @@
 	/**
 	 * Merge two progress documents (this device and GitHub): per word the later change wins,
 	 * settings follow the later settings change. Nothing is lost when both devices learned different words.
+	 * Different epochs: the document with the higher epoch replaces the other as a whole (import / reset).
 	 */
 	function mergeProgress(a, b) {
+		const ea = a.epoch || 0, eb = b.epoch || 0;
+		if (ea !== eb) return normalizeProgress(JSON.parse(JSON.stringify(eb > ea ? b : a)));
 		const out = emptyProgress();
+		out.epoch = ea;
 		const ids = new Set([...Object.keys(a.cards), ...Object.keys(b.cards)]);
 		for (const id of ids) {
 			const x = a.cards[id], y = b.cards[id];
@@ -533,7 +538,7 @@
 	function progressToText(p) {
 		const cards = {};
 		Object.keys(p.cards).sort((x, y) => x - y).forEach(id => { cards[id] = p.cards[id]; });
-		return JSON.stringify({ v: 1, su: p.su, settings: p.settings, cards }, null, 0)
+		return JSON.stringify({ v: 1, epoch: p.epoch || 0, su: p.su, settings: p.settings, cards }, null, 0)
 			.replace(/,"(\d+)":/g, ',\n"$1":');
 	}
 
