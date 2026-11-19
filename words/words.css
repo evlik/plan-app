@@ -17,6 +17,9 @@
 .w-bar .sp { flex: 1; }
 .w-ibtn { border: 0; background: transparent; padding: 8px; color: var(--muted); border-radius: 10px; line-height: 0; }
 .w-ibtn:disabled { opacity: .25; }
+.w-txtbtn { border: 1px solid var(--line); background: transparent; color: var(--accent); border-radius: 16px; padding: 4px 10px; font-size: 13px; font-weight: 600; margin-right: 2px; }
+.w-trow input[type=checkbox] { width: 20px; height: 20px; accent-color: var(--accent); flex: none; margin: 0; }
+label.w-trow { cursor: pointer; }
 .w-title { font-size: 22px; font-weight: 650; margin: 4px 0 2px; }
 .w-sub { font-size: 14px; color: var(--muted); }
 .w-muted { color: var(--muted); }

@@ -3,7 +3,7 @@
    Audio clips never change, so they live in their own cache that survives version bumps. */
 "use strict";
 
-const CACHE = "plan-v7";
+const CACHE = "plan-v8";
 const AUDIO_CACHE = "words-audio-v1";
 const ASSETS = [
 	"./", "./index.html", "./manifest.webmanifest", "./icon.svg", "./FORMAT.md",

@@ -361,6 +361,94 @@ test("прогрес: normalizeProgress відкидає сміття і чит�
 	assert.ok(back.cards[5] && !back.cards.x);
 });
 
+/* ---------- Practice with AI ---------- */
+
+const COURSE = {
+	byFi: new Map([["talo", 1], ["koira", 2], ["vesi", 3], ["kissa", 4]]),
+	topics: [{ id: "case-ine", title: "Місцевий «у» -ssa/-ssä (inessiivi)", level: "A1" }, { id: "case-par", title: "Частковий (partitiivi)", level: "A1" }, { id: "tense-past", title: "Минулий час (imperfekti)", level: "A2" }],
+};
+const AI_ANSWER = `Hyvää työtä! Ось підсумок:
+\`\`\`plan-practice
+PRACTICE 1
+minutes: 20
+mode: розмова
+word: Talo | 3 | 0
+word: koira | 1 | 2
+- word: vesi | 2 | 0
+word: auto | 1 | 0
+topic: case-ine | 70 | 5 | 2
+topic: partitiivi | 40 | 2 | 4
+note: Місцевий відмінок вже добре, партитив плутаєш з називним.
+\`\`\`
+Kiitos!`;
+
+test("практика: розбір блоку plan-practice", () => {
+	const r = C.parsePracticeResult(AI_ANSWER, COURSE);
+	assert.strictEqual(r.minutes, 20);
+	assert.strictEqual(r.mode, "розмова");
+	assert.deepStrictEqual(r.words.map(w => [w.fi, w.id, w.ok, w.err]), [["talo", 1, 3, 0], ["koira", 2, 1, 2], ["vesi", 3, 2, 0], ["auto", null, 1, 0]]);
+	assert.deepStrictEqual(r.topics.map(t => [t.id, t.score]), [["case-ine", 70], ["case-par", 40]]);
+	assert.ok(r.note.includes("партитив"));
+	assert.throws(() => C.parsePracticeResult("просто текст без блоку", COURSE), /plan-practice/);
+	assert.throws(() => C.parsePracticeResult("```plan-practice\nPRACTICE 1\n```", COURSE), /word:/);
+});
+
+test("практика: застосування — помилки на повторення, прострочене правильне — як повторення", () => {
+	const now = 100 * C.DAY_MS;
+	const p = C.emptyProgress();
+	C.graduate(p, 1, 0);            // talo: overdue review, used right -> GOOD review
+	C.graduate(p, 2, now - 1000);   // koira: review not due, errors -> due now
+	C.setKnown(p, 3, true, now);    // vesi: known, right -> only counters
+	const s = C.applyPractice(p, C.parsePracticeResult(AI_ANSWER, COURSE), now, "2026-12-08");
+	assert.deepStrictEqual([s.words, s.reviewed, s.flagged, s.topics], [3, 1, 1, 2]);
+	assert.ok(p.cards[1].due > now && p.cards[1].last === now);
+	assert.strictEqual(p.cards[2].due, now);
+	assert.deepStrictEqual([p.cards[2].pr, p.cards[2].pe], [1, 2]);
+	assert.strictEqual(p.cards[3].st, "KNOWN");
+	assert.strictEqual(p.topics["case-ine"].score, 70);
+	assert.strictEqual(p.practice.length, 1);
+	assert.deepStrictEqual(C.dueReviewIds(p, now), [2]);
+	// second practice smooths the score instead of replacing it
+	C.applyPractice(p, { minutes: 10, mode: "", note: "", words: [], topics: [{ id: "case-ine", score: 100 }] }, now + 1, "2026-12-09");
+	assert.strictEqual(p.topics["case-ine"].score, 88);
+	assert.strictEqual(p.topics["case-ine"].n, 2);
+});
+
+test("практика: теми й журнал зливаються між пристроями і переживають збереження", () => {
+	const a = C.emptyProgress(), b = C.emptyProgress();
+	C.applyPractice(a, { minutes: 10, mode: "", note: "", words: [], topics: [{ id: "case-ine", score: 50 }] }, 1000, "d1");
+	C.applyPractice(b, { minutes: 10, mode: "", note: "", words: [], topics: [{ id: "case-ine", score: 90 }, { id: "case-par", score: 30 }] }, 2000, "d2");
+	const m = C.mergeProgress(a, b);
+	assert.strictEqual(m.topics["case-ine"].score, 90);
+	assert.ok(m.topics["case-par"]);
+	assert.strictEqual(m.practice.length, 2);
+	const back = C.normalizeProgress(JSON.parse(C.progressToText(m)));
+	assert.strictEqual(back.practice.length, 2);
+	assert.strictEqual(back.topics["case-par"].score, 30);
+	assert.strictEqual(C.progressToText(back), C.progressToText(m));
+});
+
+test("практика: підбір слів і тем, промт з форматом результату", () => {
+	const now = 50 * C.DAY_MS;
+	const p = C.emptyProgress();
+	C.graduate(p, 1, now - 2 * C.DAY_MS);   // recent, not due
+	C.graduate(p, 2, 0);                     // overdue
+	C.saveMicroLevel(p, 3, "L1", now);       // in work
+	C.setKnown(p, 4, true, now);             // known
+	p.cards[1].pe = 3;                        // mistakes earlier
+	assert.deepStrictEqual(C.selectPracticeWords(p, now, 3), [1, 2, 3]);
+	p.topics["case-par"] = { score: 40, n: 1, last: 0, u: 0 };
+	const rec = C.recommendTopics(p, COURSE.topics, new Map([["case-ine", 30], ["case-par", 5], ["tense-past", 50]]), 2);
+	assert.deepStrictEqual(rec.map(t => t.id), ["case-par", "case-ine"]);
+	assert.deepStrictEqual(C.levelStats(p, COURSE.topics, "A1"), { total: 2, mastered: 0, avg: 20 });
+	assert.strictEqual(C.learnedCount(p), 3);
+	const prompt = C.buildPracticePrompt({ learned: 3, goal: "A1", minutes: 15, mode: "talk", situation: "кафе", topics: [{ ...COURSE.topics[0], note: "у", table: [], score: 0, n: 0 }], words: [{ fi: "talo", tr: "будинок" }] });
+	assert.ok(prompt.includes("```plan-practice") && prompt.includes("talo — будинок") && prompt.includes("case-ine") && prompt.includes("кафе"));
+	// the format block of the prompt must be readable by the parser itself
+	const example = prompt.slice(prompt.indexOf("```plan-practice")).replace("<слово як у моєму списку> | <скільки разів я вжив правильно> | <скільки разів з помилкою>", "talo | 1 | 0");
+	assert.strictEqual(C.parsePracticeResult(example, COURSE).words[0].id, 1);
+});
+
 /* ---------- Text helpers ---------- */
 
 test("текст: токени, вирівнювання, частини форми", () => {

@@ -153,6 +153,7 @@ const AI_PROMPT = `Нижче мій план у форматі .plan. Прав�
 - Не більше 3 "!" на день. Плануй 60–70% часу. Переносячи задачу: старий рядок [>], новий [ ] в іншому дні. Минулі дні та незнайомі рядки не видаляй.
 - Гроші: "@money YYYY-MM", рядок "YYYY-MM-DD -350.40 UAH Категорія | опис" (мінус витрата, плюс дохід, валюта 3 літери). З чека — один рядок на категорію, в секцію місяця дати чека.
 - "@budget YYYY-MM": "Категорія 6000 UAH". "@rates": "base UAH", "USD 41.5" (1 USD у базовій). "@debts": "[ ] Назва | 500 USD | 20% (річних) або 3.5% міс | до 2027-01-01 | план: 100/міс", платежі під ним "  YYYY-MM-DD 100 USD", відсотки "  YYYY-MM-DD +80 USD відсотки"; "мені винні" — поле для боргу мені. Ціна цілі: поле "ціна: 100 USD".
+- Фінська: поля цілі "слова: 500" (скільки слів вивчити) і "теми: A1" (теми граматики рівня A1/A2/B1) — апка міряє їх сама за прогресом вкладки «Слова». Задачі тижня для фінської пиши конкретно: "Фінська: 2 практики з ШІ — inessiivi, partitiivi".
 - "@accounts": "Назва | 120 EUR | станом YYYY-MM-DD", поле "кредит" для кредитного ліміту. "@bills": "[ ] Назва | 20 EUR | щомісяця 25" або "| кожні 31 дн з YYYY-MM-DD" або "| разово YYYY-MM-DD"; поля "кат: Категорія", "опційно", "інфо".
 Поверни ПОВНИЙ оновлений файл одним блоком коду, без пояснень усередині.
 
@@ -796,7 +797,7 @@ function renderItems(items, { skipHabits = true } = {}) {
 			return `<div class="item ${el.sub ? "sub" : ""} ${el.state}">
 				<button class="box ${el.state === "done" ? "x" : el.state}" data-toggle="${idx}" aria-label="Змінити стан">${mark}</button>
 				<div class="txt" data-edit="${idx}">${el.main ? '<span class="star">!</span>' : ""}${el.time ? `<span class="time">${esc(el.time)}</span>` : ""}${esc(el.text) || '<span class="hint">без назви</span>'}
-					${el.fields.length ? "<br>" + el.fields.map(f => `<span class="chip">${esc(f)}</span>`).join("") : ""}</div>
+					${el.fields.length ? "<br>" + el.fields.map(f => `<span class="chip">${esc(f)}</span>`).join("") : ""}${Words.goalProgress(el)}</div>
 				<button class="ghost" data-edit="${idx}" aria-label="Дії">⋯</button>
 			</div>`;
 		}
@@ -876,7 +877,8 @@ function viewDay() {
 		</section>
 		${habits.length ? `<section class="block"><h2>Звички</h2><div class="habits">
 			${habits.map(h => `<button data-habit="${esc(h)}" class="${doneHabits.has(h) ? "on" : ""}">${esc(h)}</button>`).join("")}
-		</div>${wordsHabit && today ? `<div class="row"><button type="button" data-gotab="words">Вчити слова</button></div>` : ""}</section>` : ""}
+		</div>${wordsHabit && today ? `<div class="hint" style="margin-top:10px">Фінська: ${esc(Words.dayLine())}</div>
+			<div class="row"><button type="button" data-gotab="words">Вчити слова</button><button type="button" data-gotab="words" data-wscreen="practice">Практика з ШІ</button><button type="button" data-gotab="words" data-wscreen="study">План навчання</button></div>` : ""}</section>` : ""}
 		<section class="block">
 			<h2>Нотатки</h2>
 			${renderItems(notes)}
@@ -903,7 +905,9 @@ function viewWeek() {
 			<span class="hint">${p.total ? `${p.done}/${p.total}` : "—"}</span>
 		</div>`;
 	}).join("");
+	const wordsWeek = Words.weekLine(mon);
 	const habitGrid = habits.length ? `<section class="block"><h2>Звички за тиждень</h2>
+		${wordsWeek ? `<div class="hint">Фінська: ${esc(wordsWeek)}</div>` : ""}
 		${habits.map(h => {
 			const cells = days.map(d => sectionItems("day", isoDate(d)).some(i => i.el.kind === "habits" && i.el.names.includes(h)));
 			return `<div class="hint" style="margin-top:6px">${esc(h)} · ${cells.filter(Boolean).length}/7</div>
@@ -1790,7 +1794,7 @@ document.getElementById("main").addEventListener("click", async e => {
 	const goweek = t.closest("[data-goweek]");
 	if (goweek) { state.cursor = parseDate(goweek.dataset.goweek); state.tab = "week"; return render(); }
 	const gotab = t.closest("[data-gotab]");
-	if (gotab) { state.tab = gotab.dataset.gotab; render(); return scrollTo(0, 0); }
+	if (gotab) { if (gotab.dataset.wscreen) Words.open(gotab.dataset.wscreen); state.tab = gotab.dataset.gotab; render(); return scrollTo(0, 0); }
 	const catPick = t.closest("[data-catpick]");
 	if (catPick) {
 		const input = document.querySelector('form[data-money="tx"] input');

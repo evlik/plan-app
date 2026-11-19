@@ -373,9 +373,13 @@
 
 	/* ============================================================
 	   Progress model
-	   Stored as {v, cards: {id: card}, settings, su}. A word without a card is NEW.
-	   card: {st, lv, iv, due, s, d, last, grad, lapses, u}  (u = last change, ms; used to merge devices)
+	   Stored as {v, epoch, cards: {id: card}, topics: {id: topic}, practice: [entry], settings, su}. A word without a card is NEW.
+	   card: {st, lv, iv, due, s, d, last, grad, lapses, pr, pe, u}  (pr/pe = uses in AI practice: right / with errors;
+	         u = last change, ms; used to merge devices)
+	   topic: {score 0-100, n sessions, last, u}   practice entry: {id, date, min, mode, words, err, topics: {id: score}, note}
 	   ============================================================ */
+
+	const PRACTICE_LOG_MAX = 300;
 
 	const DAY_MS = 86400000;
 	const FIRST_KNOWN_CHECK_DAYS = 14;
@@ -388,7 +392,7 @@
 
 	/** Empty progress document. `epoch` grows on a deliberate reset/import: a higher epoch replaces, never merges. */
 	function emptyProgress() {
-		return { v: 1, epoch: 0, cards: {}, settings: defaultSettings(), su: 0 };
+		return { v: 1, epoch: 0, cards: {}, topics: {}, practice: [], settings: defaultSettings(), su: 0 };
 	}
 
 	/** Validate and normalise a progress object read from storage or GitHub; throws on garbage. */
@@ -403,15 +407,26 @@
 			out.cards[id] = {
 				st: c.st, lv: Number(c.lv) || 0, iv: Number(c.iv) || 0,
 				due: c.due ?? null, s: c.s ?? null, d: c.d ?? null, last: c.last ?? null,
-				grad: c.grad ?? null, lapses: Number(c.lapses) || 0, u: Number(c.u) || 0,
+				grad: c.grad ?? null, lapses: Number(c.lapses) || 0,
+				pr: Number(c.pr) || 0, pe: Number(c.pe) || 0, u: Number(c.u) || 0,
 			};
 		}
+		for (const [id, t] of Object.entries(p.topics && typeof p.topics === "object" ? p.topics : {})) {
+			if (!t || !/^[\w-]+$/.test(id)) continue;
+			out.topics[id] = { score: clamp(Math.round(Number(t.score) || 0), 0, 100), n: Number(t.n) || 0, last: t.last ?? null, u: Number(t.u) || 0 };
+		}
+		out.practice = (Array.isArray(p.practice) ? p.practice : [])
+			.filter(e => e && typeof e.id === "string" && typeof e.date === "string")
+			.map(e => ({
+				id: e.id, date: e.date, min: Number(e.min) || 0, mode: String(e.mode || ""), words: Number(e.words) || 0,
+				err: Number(e.err) || 0, topics: e.topics && typeof e.topics === "object" ? e.topics : {}, note: String(e.note || ""),
+			}));
 		return out;
 	}
 
 	/** Card of a word (a NEW placeholder when missing). */
 	function cardOf(progress, id) {
-		return progress.cards[id] || { st: "NEW", lv: 0, iv: 0, due: null, s: null, d: null, last: null, grad: null, lapses: 0, u: 0 };
+		return progress.cards[id] || { st: "NEW", lv: 0, iv: 0, due: null, s: null, d: null, last: null, grad: null, lapses: 0, pr: 0, pe: 0, u: 0 };
 	}
 
 	/** Write a card, stamping the change time. */
@@ -528,6 +543,14 @@
 			const x = a.cards[id], y = b.cards[id];
 			out.cards[id] = !x ? y : !y ? x : (y.u > x.u ? y : x);
 		}
+		const tids = new Set([...Object.keys(a.topics || {}), ...Object.keys(b.topics || {})]);
+		for (const id of tids) {
+			const x = (a.topics || {})[id], y = (b.topics || {})[id];
+			out.topics[id] = !x ? y : !y ? x : (y.u > x.u ? y : x);
+		}
+		const log = new Map();
+		[...(a.practice || []), ...(b.practice || [])].forEach(e => log.set(e.id, e));
+		out.practice = [...log.values()].sort((x, y) => x.id.localeCompare(y.id)).slice(-PRACTICE_LOG_MAX);
 		const newer = (b.su || 0) > (a.su || 0) ? b : a;
 		out.settings = { ...newer.settings };
 		out.su = newer.su || 0;
@@ -538,8 +561,210 @@
 	function progressToText(p) {
 		const cards = {};
 		Object.keys(p.cards).sort((x, y) => x - y).forEach(id => { cards[id] = p.cards[id]; });
-		return JSON.stringify({ v: 1, epoch: p.epoch || 0, su: p.su, settings: p.settings, cards }, null, 0)
-			.replace(/,"(\d+)":/g, ',\n"$1":');
+		const topics = {};
+		Object.keys(p.topics || {}).sort().forEach(id => { topics[id] = p.topics[id]; });
+		const head = JSON.stringify({ v: 1, epoch: p.epoch || 0, su: p.su, settings: p.settings, topics, practice: p.practice || [] });
+		const body = Object.entries(cards).map(([id, c]) => `"${id}":${JSON.stringify(c)}`).join(",\n");
+		return `${head.slice(0, -1)},"cards":{${body}}}`;
+	}
+
+	/* ============================================================
+	   Practice with AI
+	   The app builds a prompt; the AI ends the session with a ```plan-practice block:
+		PRACTICE 1
+		minutes: 20
+		mode: розмова
+		word: talo | 3 | 1        dictionary form | used right | used with errors
+		topic: case-ine | 70 | 5 | 2   topic id | mastery 0-100 | right | errors
+		note: short feedback
+	   ============================================================ */
+
+	const PRACTICE_TAG = "plan-practice";
+	const LEVEL_ORDER = { A1: 0, A2: 1, B1: 2 };
+	const MASTERED = 80;
+
+	/** Human status of a topic score. */
+	function topicStatus(t) {
+		if (!t || !t.n) return { key: "new", label: "не почато" };
+		if (t.score >= MASTERED) return { key: "done", label: "засвоєно" };
+		if (t.score >= 60) return { key: "almost", label: "майже" };
+		return { key: "learning", label: "вчу" };
+	}
+
+	/** Words counted as learned for goals: on long-term review or marked known. */
+	function learnedCount(progress) {
+		return Object.values(progress.cards).filter(c => c.st === "REVIEW" || c.st === "KNOWN").length;
+	}
+
+	/** Topic progress of one CEFR level: mastered / total and the average score. */
+	function levelStats(progress, topicList, level) {
+		const list = topicList.filter(t => t.level === level);
+		const scores = list.map(t => (progress.topics[t.id] || {}).score || 0);
+		return {
+			total: list.length,
+			mastered: list.filter(t => (progress.topics[t.id] || {}).score >= MASTERED).length,
+			avg: list.length ? Math.round(scores.reduce((a, b) => a + b, 0) / list.length) : 0,
+		};
+	}
+
+	/**
+	 * Topics to work on next: lowest level first, topics already started before new ones,
+	 * then the ones with most examples among learned words. usage: Map id -> examples in learned words.
+	 */
+	function recommendTopics(progress, topicList, usage, n = 3) {
+		return topicList
+			.filter(t => ((progress.topics[t.id] || {}).score || 0) < MASTERED && ((usage.get(t.id) || 0) > 0 || t.level === "A1"))
+			.sort((x, y) => (LEVEL_ORDER[x.level] ?? 9) - (LEVEL_ORDER[y.level] ?? 9)
+				|| ((progress.topics[y.id] || {}).n ? 1 : 0) - ((progress.topics[x.id] || {}).n ? 1 : 0)
+				|| (usage.get(y.id) || 0) - (usage.get(x.id) || 0))
+			.slice(0, n);
+	}
+
+	/**
+	 * Words for a practice session, by priority: mistakes in earlier practice, overdue reviews,
+	 * words in the micro-deck, recently graduated, then the rest of the learned words. NEW words never.
+	 */
+	function selectPracticeWords(progress, now, count) {
+		const entries = Object.entries(progress.cards).filter(([, c]) => c.st !== "NEW").map(([id, c]) => [Number(id), c]);
+		const score = c => {
+			if (c.pe > c.pr / 2 && c.pe > 0) return 0;
+			if (c.st === "REVIEW" && c.due != null && c.due <= now) return 1;
+			if (c.st === "MICRO" || c.st === "COOLING") return 2;
+			if (c.grad != null && now - c.grad < 14 * DAY_MS) return 3;
+			return c.st === "KNOWN" ? 5 : 4;
+		};
+		return entries
+			.sort((a, b) => score(a[1]) - score(b[1]) || (a[1].due ?? Infinity) - (b[1].due ?? Infinity) || a[0] - b[0])
+			.slice(0, count)
+			.map(([id]) => id);
+	}
+
+	/** Ukrainian name of a practice mode with the instruction for the AI. */
+	const PRACTICE_MODES = {
+		talk: ["розмова", "Веди простий діалог на обрану ситуацію: став мені запитання і реагуй на відповіді, як співрозмовник."],
+		translate: ["переклад", "Давай мені короткі українські речення для перекладу на фінську (від простих до складніших)."],
+		write: ["письмо", "Дай коротке письмове завдання (повідомлення, лист, опис) на 3–6 речень, потім розбери мій текст і дай наступне."],
+		mix: ["мікс", "Чергуй: 2–3 переклади речень, коротка розмова, одне маленьке письмове завдання."],
+	};
+
+	/** Build the prompt for one practice session (all text the AI needs, ending with the result format). */
+	function buildPracticePrompt({ learned, goal, minutes, mode, situation, topics, words }) {
+		const [modeName, modeRule] = PRACTICE_MODES[mode] || PRACTICE_MODES.mix;
+		const topicLines = topics.map(t => {
+			const st = t.n ? `мій рівень зараз ${t.score}% (${t.n} практ.)` : "ще не тренував";
+			const table = t.table && t.table.length ? " Правило: " + t.table.map(([l, r]) => `${l} — ${r}`).join("; ") + "." : "";
+			return `- ${t.id} — ${t.title} [${t.level}]: ${t.note}${table} ${st}.`;
+		});
+		return [
+			"Ти — мій викладач фінської. Я україномовний, пояснення давай українською.",
+			`Мій рівень: вивчено ${learned} слів, ціль — ${goal}.`,
+			`Сесія: ${minutes} хв, режим: ${modeName}.${situation ? ` Ситуація: ${situation}.` : ""}`,
+			"",
+			"ТЕМИ ГРАМАТИКИ (тренуй саме їх):",
+			...topicLines,
+			"",
+			"СЛОВА ДЛЯ АКТИВНОГО ВЖИВАННЯ (фінська — українська):",
+			words.map(w => `${w.fi} — ${w.tr}`).join("; "),
+			"",
+			"ПРАВИЛА:",
+			`1. ${modeRule}`,
+			"2. Фінська мого рівня, короткі речення. Слово поза списком — з перекладом у дужках.",
+			"3. Одне завдання за раз, чекай моєї відповіді. Не давай готове фінське слово зі списку — давай український підказ, щоб я згадав сам.",
+			"4. Після кожної моєї відповіді: якщо є помилка — правильний варіант і одне речення пояснення українською; потім далі.",
+			"5. Кожне слово зі списку — щонайменше раз, кожна тема — щонайменше 3 рази. Веди лічильник подумки.",
+			`6. Коли я напишу «кінець» або мине ${minutes} хв, виведи підсумок ОДНИМ блоком коду точно в такому форматі, без інших рядків усередині:`,
+			"",
+			"```" + PRACTICE_TAG,
+			"PRACTICE 1",
+			`minutes: ${minutes}`,
+			`mode: ${modeName}`,
+			"word: <слово як у моєму списку> | <скільки разів я вжив правильно> | <скільки разів з помилкою>",
+			"topic: <id теми зі списку> | <засвоєння 0-100> | <правильно> | <помилок>",
+			"note: <1–2 речення: що виходить, що підтягнути>",
+			"```",
+			"",
+			"У рядках word: лише слова, які я сам вжив хоч раз (у будь-якій формі — пиши словникову форму зі списку). Можна додати й слова поза списком, якщо я їх вживав.",
+			"Засвоєння теми: 0 — не можу, 50 — роблю з помилками, 80 — переважно правильно, 100 — вільно. Оцінюй чесно, за моїми відповідями в цій сесії.",
+			"Почни з першого завдання.",
+		].join("\n");
+	}
+
+	/** Non-negative integer from AI text (garbage -> 0). */
+	function count(s) {
+		const n = parseInt(String(s).replace(/[^\d]/g, ""), 10);
+		return Number.isFinite(n) ? Math.min(n, 999) : 0;
+	}
+
+	/**
+	 * Parse the AI result block. course: {byFi: Map lower fi -> id, topics: [{id, title}]}.
+	 * Returns {minutes, mode, note, words: [{fi, id, ok, err}], topics: [{raw, id, score, ok, err}]}; throws when no block found.
+	 */
+	function parsePracticeResult(text, course) {
+		const src = String(text || "");
+		const fenced = src.match(new RegExp("```\\s*" + PRACTICE_TAG + "\\s*\\n([\\s\\S]*?)```"));
+		const at = src.search(/^\s*PRACTICE\s+\d+/m);
+		const body = fenced ? fenced[1] : at >= 0 ? src.slice(at) : "";
+		if (!body) throw new Error("Не знайшов блок plan-practice. Скопіюй відповідь ШІ разом із блоком коду в кінці.");
+		const out = { minutes: 0, mode: "", note: "", words: [], topics: [] };
+		const byTitle = t => course.topics.find(x => x.id === t || x.title.toLowerCase().includes(t.toLowerCase()));
+		for (const raw of body.split(/\r?\n/)) {
+			const line = raw.trim().replace(/^[-*]\s*/, "");
+			const m = line.match(/^(\w+)\s*:\s*(.*)$/);
+			if (!m) continue;
+			const key = m[1].toLowerCase(), val = m[2].trim();
+			const parts = val.split("|").map(s => s.trim());
+			if (key === "minutes") out.minutes = Math.min(count(val), 600);
+			else if (key === "mode") out.mode = val.slice(0, 40);
+			else if (key === "note") out.note = val.slice(0, 400);
+			else if (key === "word" && parts[0]) {
+				const fi = parts[0].toLowerCase().replace(/[.,!?;:"«»]/g, "");
+				const id = course.byFi.get(fi) ?? null;
+				const prev = out.words.find(w => w.fi === fi);
+				if (prev) { prev.ok += count(parts[1]); prev.err += count(parts[2]); }
+				else out.words.push({ fi, id, ok: count(parts[1]), err: count(parts[2]) });
+			} else if (key === "topic" && parts[0]) {
+				const t = byTitle(parts[0]);
+				out.topics.push({ raw: parts[0], id: t ? t.id : null, score: clamp(count(parts[1]), 0, 100), ok: count(parts[2]), err: count(parts[3]) });
+			}
+		}
+		if (!out.words.length && !out.topics.length) throw new Error("У блоці немає рядків word: чи topic: — попроси ШІ вивести підсумок у форматі з промту.");
+		return out;
+	}
+
+	/**
+	 * Apply a parsed practice to the progress. Errors pull a learned word to the next session;
+	 * an overdue review word used only correctly counts as a successful review. Returns a summary.
+	 */
+	function applyPractice(progress, result, now, date, fsrs = new Fsrs()) {
+		const summary = { words: 0, reviewed: 0, flagged: 0, topics: 0, err: 0 };
+		for (const w of result.words) {
+			if (w.id == null) continue;
+			summary.words++;
+			summary.err += w.err;
+			const before = cardOf(progress, w.id);
+			if (w.err > 0 && w.err >= w.ok && (before.st === "REVIEW" || before.st === "KNOWN")) {
+				putCard(progress, w.id, { ...before, due: now }, now);
+				summary.flagged++;
+			} else if (w.ok > 0 && w.err === 0 && before.st === "REVIEW" && before.due != null && before.due <= now) {
+				reviewAnswered(progress, w.id, RATING.GOOD, now, fsrs);
+				summary.reviewed++;
+			}
+			const c = cardOf(progress, w.id);
+			putCard(progress, w.id, { ...c, pr: (c.pr || 0) + w.ok, pe: (c.pe || 0) + w.err }, now);
+		}
+		const scores = {};
+		for (const t of result.topics) {
+			if (!t.id) continue;
+			const prev = progress.topics[t.id];
+			const score = prev && prev.n ? Math.round(prev.score * 0.4 + t.score * 0.6) : t.score;
+			progress.topics[t.id] = { score, n: (prev ? prev.n : 0) + 1, last: now, u: now };
+			scores[t.id] = score;
+			summary.topics++;
+		}
+		progress.practice = [...(progress.practice || []), {
+			id: String(now), date, min: result.minutes, mode: result.mode, words: summary.words, err: summary.err, topics: scores, note: result.note,
+		}].slice(-PRACTICE_LOG_MAX);
+		return summary;
 	}
 
 	/* ============================================================
@@ -657,6 +882,8 @@
 		defaultSettings, emptyProgress, normalizeProgress, cardOf, saveMicroLevel, graduate, reviewAnswered,
 		demoteToMicro, setKnown, passKnownCheck, failKnownCheck, restoredWords, newWordIds, dueReviewIds,
 		knownCheckDue, graduatedSince, mergeProgress, progressToText,
+		PRACTICE_TAG, PRACTICE_MODES, MASTERED, topicStatus, learnedCount, levelStats, recommendTopics, selectPracticeWords,
+		buildPracticePrompt, parsePracticeResult, applyPractice,
 		tokenize, parseAlignment, partRanges, trimNonLetters, buildDerivation, hasGradation,
 	};
 	if (typeof module !== "undefined" && module.exports) module.exports = api;

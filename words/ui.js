@@ -89,7 +89,7 @@
 			.finally(() => {
 				clearTimeout(timer);
 				W.loading = null;
-				if (state.tab === "words") render();
+				if (["words", "goals", "day"].includes(state.tab)) render();
 			});
 		return W.loading;
 	}
@@ -645,14 +645,314 @@
 		const m = name.match(/(\d+)/);
 		const threshold = Math.min(m ? Number(m[1]) : 5, W.progress.settings.goal);
 		if (graduatedToday < threshold) return;
+		if (addHabitToday(name)) toast(`Звичку «${name}» відмічено в плані`);
+	}
+
+	/** Add a habit to today's "habits:" line (no render, so the words screen stays); true when it was added. */
+	function addHabitToday(name) {
 		const id = isoDate(new Date());
 		const line = sectionItems("day", id).find(i => i.el.kind === "habits");
-		if (line && line.el.names.includes(name)) return;
+		if (line && line.el.names.includes(name)) return false;
 		if (line) state.lines[line.idx] = `habits: ${[...line.el.names, name].join(", ")}`;
 		else appendToSection("day", id, `habits: ${name}`);
-		save();   // no render(): the words screen stays as it is
-		toast(`Звичку «${name}» відмічено в плані`);
-		console.info("[INFO] Words habit ticked:", name);
+		save();
+		console.info("[INFO] Habit ticked:", name);
+		return true;
+	}
+
+	/** Habit for AI practice: the first habit about practice with AI. */
+	function practiceHabitName() {
+		return habitList().find(h => /практик|ші\b|\bai\b/i.test(h)) || null;
+	}
+
+	/* ============================================================
+	   Learning plan & goals
+	   Goals in the plan carry fields "слова: 500" and "теми: A1"; the app measures them.
+	   ============================================================ */
+
+	/** Goals and sub-goals of @goals that have "слова:" or "теми:" fields. */
+	function planGoals() {
+		const out = [];
+		for (const { el } of sectionItems("goals")) {
+			if (el.kind !== "task") continue;
+			const g = goalFields(el);
+			if (g) out.push({ text: el.text, done: el.state === "done", ...g });
+		}
+		return out;
+	}
+
+	/** Parse the word / topic / deadline fields of a goal task; null when it has none. */
+	function goalFields(el) {
+		let words = null, level = null, due = null;
+		for (const f of el.fields) {
+			let m;
+			if ((m = f.match(/^слова:\s*(\d+)$/i))) words = Number(m[1]);
+			else if ((m = f.match(/^теми:\s*(A1|A2|B1)$/i))) level = m[1].toUpperCase();
+			else if ((m = f.match(/^до\s+(\d{4}-\d{2}-\d{2})$/))) due = m[1];
+		}
+		return words || level ? { words, level, due } : null;
+	}
+
+	/** Usage of every topic among learned words (for recommendations). */
+	function learnedTopicUsage() {
+		const usage = new Map();
+		for (const [id, c] of Object.entries(W.progress.cards)) {
+			if (c.st !== "REVIEW" && c.st !== "KNOWN") continue;
+			const w = W.course.words.get(Number(id));
+			if (!w) continue;
+			for (const ex of w.ex) {
+				const ids = new Set([...(ex.st || []), ...ex.tk.flatMap(k => k.t)]);
+				ids.forEach(t => usage.set(t, (usage.get(t) || 0) + 1));
+			}
+		}
+		return usage;
+	}
+
+	/** "1 слово", "3 слова", "5 слів": Ukrainian plural of a counted noun. */
+	function plural(n, one, few, many) {
+		const d = n % 10, h = n % 100;
+		return `${n} ${d === 1 && h !== 11 ? one : d >= 2 && d <= 4 && (h < 12 || h > 14) ? few : many}`;
+	}
+
+	/** Progress bar html. */
+	function bar(done, total) {
+		const pct = total ? Math.min(100, Math.round(done / total * 100)) : 0;
+		return `<div class="bar"><i style="width:${pct}%"></i></div>`;
+	}
+
+	/** Measured progress of one goal: words, topics and the pace needed to make the deadline. */
+	function goalProgressHtml(g) {
+		if (!W.progress) W.progress = loadProgress();
+		const parts = [];
+		if (g.words) {
+			const learned = C.learnedCount(W.progress);
+			let pace = "";
+			if (g.due && learned < g.words) {
+				const days = Math.max(1, Math.ceil((new Date(g.due + "T23:59") - Date.now()) / C.DAY_MS));
+				const need = (g.words - learned) / days;
+				const goal = W.progress.settings.goal;
+				pace = ` · треба ${need.toFixed(1)}/день${need > goal ? ` <span class="warn">(ціль ${goal} — замало)</span>` : ""}`;
+			}
+			parts.push(`<div class="hint">слова: ${learned} / ${g.words}${learned >= g.words ? " ✓" : pace}</div>${bar(learned, g.words)}`);
+		}
+		if (g.level) {
+			if (!W.course) {
+				loadCourse();
+				parts.push(`<div class="hint">теми ${g.level}: завантажую курс…</div>`);
+			} else {
+				const s = C.levelStats(W.progress, W.course.list, g.level);
+				parts.push(`<div class="hint">теми ${g.level}: засвоєно ${s.mastered} / ${s.total} · середнє ${s.avg} %</div>${bar(s.avg, 100)}`);
+			}
+		}
+		return parts.join("");
+	}
+
+	/** Practices of the current ISO week (Monday..Sunday) from the log. */
+	function practicesSince(fromIso) {
+		return (W.progress.practice || []).filter(e => e.date >= fromIso);
+	}
+
+	/** Monday of this week as YYYY-MM-DD. */
+	function mondayIso(d = new Date()) {
+		const m = new Date(d);
+		m.setDate(m.getDate() - ((m.getDay() + 6) % 7));
+		return isoDate(m);
+	}
+
+	/** Short name of a topic: the Finnish term in brackets, else the id. */
+	function topicShort(id) {
+		const t = W.course && W.course.topics.get(id);
+		if (!t) return id;
+		const m = t.title.match(/\(([^)]+)\)\s*$/);
+		return m ? m[1] : t.title;
+	}
+
+	/** Study plan screen: goals from the plan, today, next topics, levels, practice log. */
+	function studyHtml() {
+		const p = W.progress, now = Date.now();
+		const goals = planGoals().filter(g => !g.done);
+		const usage = learnedTopicUsage();
+		const rec = C.recommendTopics(p, W.course.list, usage, 3);
+		W.recommended = rec.map(t => t.id);
+		const due = C.dueReviewIds(p, now).length;
+		const today = C.graduatedSince(p, startOfToday());
+		const week = practicesSince(mondayIso());
+		const levels = ["A1", "A2", "B1"].map(l => [l, C.levelStats(p, W.course.list, l)]);
+		const log = (p.practice || []).slice(-5).reverse();
+		return `${backBar()}<div class="w-title">План навчання</div>
+			<div class="w-sub">вивчено ${plural(C.learnedCount(p), "слово", "слова", "слів")} · сьогодні ${today} / ${p.settings.goal} · повторень чекає ${due} · практик з ШІ цього тижня ${week.length}</div>
+			<div class="w-gh">Цілі з плану</div>
+			${goals.length ? goals.map(g => `<div class="w-set"><div>${esc(g.text)}${g.due ? ` <span class="w-sub">до ${esc(g.due)}</span>` : ""}</div>${goalProgressHtml(g)}</div>`).join("")
+				: '<p class="w-sub">Додай до цілі у вкладці «Цілі» поля <b>| слова: 500 | теми: A1 | до 2027-02-28</b> — тут зʼявиться прогрес і потрібний темп.</p>'}
+			<div class="w-gh">Що вчити далі</div>
+			${rec.map(t => topicRowHtml(t, usage)).join("")}
+			<div class="row"><button class="primary" data-w="go" data-to="practice">Практика з ШІ</button><button data-w="weekplan">Додати в план тижня</button></div>
+			<div class="w-gh">Рівні</div>
+			${levels.map(([l, s]) => `<div class="w-set"><div class="lab"><span>${l}</span><span class="w-sub">засвоєно ${s.mastered} / ${s.total} · середнє ${s.avg} %</span></div>${bar(s.avg, 100)}</div>`).join("")}
+			<p class="w-sub">Тема засвоєна, коли оцінка з практик з ШІ ≥ ${C.MASTERED} %. Оцінка згладжується: нова практика важить 60 %.</p>
+			<div class="w-gh">Останні практики</div>
+			${log.length ? log.map(e => `<div class="w-usage"><div>${esc(e.date)} · ${e.min} хв · ${esc(e.mode || "практика")} · слів ${e.words}${e.err ? `, помилок ${e.err}` : ""}</div>
+				<div class="u">${Object.entries(e.topics || {}).map(([id, s]) => `${esc(topicShort(id))} ${s} %`).join(", ")}${e.note ? " — " + esc(e.note) : ""}</div></div>`).join("")
+				: '<p class="w-sub">Ще не було. Згенеруй промт, потренуйся з ШІ і встав його підсумок.</p>'}`;
+	}
+
+	/** One topic row with its status and score (tap opens the topic page). */
+	function topicRowHtml(t, usage) {
+		const st = W.progress.topics[t.id];
+		const status = C.topicStatus(st);
+		return `<div class="w-trow" data-w="topic" data-topic="${esc(t.id)}"><span class="lv">${esc(t.level)}</span><span class="t">${esc(t.title)}</span>
+			<span class="n">${st && st.n ? `${st.score} % · ` : ""}${status.label}${usage ? ` · ${usage.get(t.id) || 0} прикл.` : ""}</span></div>`;
+	}
+
+	/** Append a practice task with the recommended topics to this week's plan. */
+	function addPracticeToWeek() {
+		const topics = (W.recommended || []).map(topicShort).join(", ");
+		const line = `[ ] Фінська: 2 практики з ШІ — ${topics || "слова тижня"}`;
+		const wid = isoWeek(new Date());
+		if (sectionItems("week", wid).some(i => i.el.kind === "task" && i.el.text.startsWith("Фінська: 2 практики з ШІ"))) return toast("У плані тижня вже є практика з ШІ");
+		appendToSection("week", wid, line);
+		save();
+		toast("Додано в план тижня");
+	}
+
+	/* ============================================================
+	   AI practice
+	   ============================================================ */
+
+	/** Practice settings and state (kept while the app is open). */
+	function prac() {
+		if (!W.prac) {
+			W.prac = { mode: "talk", minutes: 20, situation: "", count: 20, topics: new Set(W.recommended || []), words: null, result: null, text: "", allTopics: false };
+		}
+		if (!W.prac.words) W.prac.words = C.selectPracticeWords(W.progress, Date.now(), W.prac.count);
+		if (!W.prac.topics.size) C.recommendTopics(W.progress, W.course.list, learnedTopicUsage(), 2).forEach(t => W.prac.topics.add(t.id));
+		return W.prac;
+	}
+
+	/** Goal text for the prompt: the nearest open goal with a word count. */
+	function promptGoal() {
+		const g = planGoals().filter(x => !x.done && x.words).sort((a, b) => (a.due || "9").localeCompare(b.due || "9"))[0];
+		return g ? `${g.text}${g.due ? ` до ${g.due}` : ""}` : "YKI 3 (B1)";
+	}
+
+	/** Prompt text for the current practice settings. */
+	function practicePrompt() {
+		const s = prac();
+		return C.buildPracticePrompt({
+			learned: C.learnedCount(W.progress), goal: promptGoal(), minutes: s.minutes, mode: s.mode, situation: s.situation.trim(),
+			topics: [...s.topics].map(id => W.course.topics.get(id)).filter(Boolean).map(t => ({ ...t, ...(W.progress.topics[t.id] || { score: 0, n: 0 }) })),
+			words: s.words.map(id => { const w = word(id); return { fi: w.fi, tr: w.tr.join(", ") }; }),
+		});
+	}
+
+	/** Practice screen: settings -> prompt -> paste the AI result -> preview -> apply. */
+	function practiceHtml() {
+		const s = prac();
+		const chips = (list, key, cur) => `<div class="w-modes">${list.map(([v, t]) => `<button type="button" class="${String(cur) === String(v) ? "on" : ""}" data-w="pracset" data-key="${key}" data-val="${v}">${t}</button>`).join("")}</div>`;
+		const topicList = s.allTopics ? W.course.list.slice().sort((a, b) => a.level.localeCompare(b.level)) : C.recommendTopics(W.progress, W.course.list, learnedTopicUsage(), 6);
+		[...s.topics].forEach(id => { if (!topicList.some(t => t.id === id)) { const t = W.course.topics.get(id); if (t) topicList.unshift(t); } });
+		return `${backBar()}<div class="w-title">Практика з ШІ</div>
+			<p class="w-sub">1. Налаштуй і скопіюй промт. 2. Встав у чат з будь-яким ШІ і тренуйся. 3. Напиши «кінець», скопіюй відповідь з блоком <b>plan-practice</b> і встав нижче — апка відмітить прогрес.</p>
+			<div class="w-set"><div>Режим</div>${chips(Object.entries(C.PRACTICE_MODES).map(([k, v]) => [k, v[0]]), "mode", s.mode)}</div>
+			<div class="w-set"><div>Тривалість</div>${chips([[10, "10 хв"], [15, "15 хв"], [20, "20 хв"], [30, "30 хв"]], "minutes", s.minutes)}</div>
+			<div class="w-set"><div>Ситуація (необовʼязково)</div><div class="w-search"><input id="wPracSit" value="${esc(s.situation)}" placeholder="на роботі, у магазині, співбесіда…" autocomplete="off"></div></div>
+			<div class="w-set"><div class="lab"><span>Теми · обрано ${s.topics.size}</span><button class="ghost" data-w="practopicsall">${s.allTopics ? "рекомендовані" : "усі теми"}</button></div>
+				${topicList.map(t => { const st = W.progress.topics[t.id]; return `<label class="w-trow"><input type="checkbox" data-wtopic="${esc(t.id)}" ${s.topics.has(t.id) ? "checked" : ""}><span class="lv">${esc(t.level)}</span><span class="t">${esc(t.title)}</span><span class="n">${st && st.n ? st.score + " %" : C.topicStatus(st).label}</span></label>`; }).join("")}</div>
+			<div class="w-set"><div class="lab"><span>Слова · ${s.words.length}</span>${chips([[10, "10"], [20, "20"], [30, "30"]], "count", s.count)}</div>
+				<div class="w-sub">спершу слова з помилками, прострочені повторення, ті, що в роботі, і свіжі. Тап по слову — прибрати.</div>
+				<div class="w-kchips" style="margin-top:8px">${s.words.map(id => `<button type="button" data-w="pracword" data-id="${id}">${esc(word(id).fi)}</button>`).join("") || '<span class="w-sub">Ще немає вивчених слів — спершу пройди кілька сесій.</span>'}</div></div>
+			<div class="row"><button class="primary" data-w="praccopy" ${s.topics.size || s.words.length ? "" : "disabled"}>Копіювати промт</button></div>
+			<details style="margin-top:8px"><summary class="hint">Показати промт</summary><textarea class="rawedit" id="wPracPrompt" readonly style="min-height:40vh">${esc(practicePrompt())}</textarea></details>
+			<div class="w-gh">Результати</div>
+			<textarea class="rawedit" id="wPracIn" style="min-height:22vh" placeholder="Встав сюди відповідь ШІ з блоком plan-practice">${esc(s.text)}</textarea>
+			<div class="row"><button data-w="pracpaste">Вставити з буфера</button><button class="primary" data-w="pracparse">Розібрати</button></div>
+			<div id="wPracResult">${s.result ? resultPreviewHtml(s.result) : ""}</div>`;
+	}
+
+	/** Preview of a parsed result: what will change, before applying. */
+	function resultPreviewHtml(r) {
+		const now = Date.now();
+		const effect = w => {
+			const c = C.cardOf(W.progress, w.id);
+			if (w.err > 0 && w.err >= w.ok && (c.st === "REVIEW" || c.st === "KNOWN")) return "→ на найближче повторення";
+			if (w.ok > 0 && w.err === 0 && c.st === "REVIEW" && c.due != null && c.due <= now) return "→ зараховано як повторення";
+			return c.st === "NEW" ? "ще не вчив у сесіях" : "";
+		};
+		const known = r.words.filter(w => w.id != null), unknown = r.words.filter(w => w.id == null);
+		return `<div class="w-set"><div>${r.minutes ? `${r.minutes} хв · ` : ""}${esc(r.mode || "практика")} · слів ${known.length} · тем ${r.topics.filter(t => t.id).length}</div>
+			${r.note ? `<p class="w-sub">${esc(r.note)}</p>` : ""}
+			${known.map(w => `<div class="w-trow"><span class="t">${esc(w.fi)}</span><span class="n">✓${w.ok}${w.err ? ` ✗${w.err}` : ""} ${effect(w)}</span></div>`).join("")}
+			${unknown.length ? `<p class="w-sub">Не з курсу (не враховуються): ${unknown.map(w => esc(w.fi)).join(", ")}</p>` : ""}
+			${r.topics.map(t => { const prev = t.id && W.progress.topics[t.id]; const next = prev && prev.n ? Math.round(prev.score * 0.4 + t.score * 0.6) : t.score;
+				return `<div class="w-trow"><span class="t">${esc(t.id ? W.course.topics.get(t.id).title : t.raw + " — тема не знайдена")}</span><span class="n">${t.id ? `${prev && prev.n ? prev.score + " → " : ""}${next} %` : ""}</span></div>`; }).join("")}
+			<div class="row"><button class="primary" data-w="pracapply">Застосувати</button><button data-w="pracclear">Скасувати</button></div></div>`;
+	}
+
+	/** Copy the prompt (falls back to selecting it in the preview). */
+	async function copyPrompt() {
+		const text = practicePrompt();
+		try {
+			await navigator.clipboard.writeText(text);
+			toast("Промт скопійовано — встав у чат з ШІ");
+		} catch (err) {
+			console.warn("[WARNING] Clipboard write failed:", err);
+			const ta = document.getElementById("wPracPrompt");
+			ta.closest("details").open = true;
+			ta.select();
+			toast("Не вдалося скопіювати автоматично — промт виділено, скопіюй вручну");
+		}
+	}
+
+	/** Paste the AI answer from the clipboard into the results field and parse it. */
+	async function pasteResult() {
+		try {
+			W.prac.text = await navigator.clipboard.readText();
+			parseResult();
+		} catch (err) {
+			console.warn("[WARNING] Clipboard read failed:", err);
+			toast("Немає доступу до буфера — встав відповідь у поле вручну");
+		}
+	}
+
+	/** Parse the pasted text and show the preview (or a clear error). */
+	function parseResult() {
+		const s = W.prac;
+		const byFi = new Map();
+		W.course.order.forEach(id => { const w = word(id); if (!byFi.has(w.fi.toLowerCase())) byFi.set(w.fi.toLowerCase(), id); });
+		try {
+			s.result = C.parsePracticeResult(s.text, { byFi, topics: W.course.list });
+		} catch (err) {
+			s.result = null;
+			toast(err.message);
+		}
+		redraw();
+		document.getElementById("wPracResult")?.scrollIntoView({ behavior: "smooth", block: "start" });
+	}
+
+	/** Apply the parsed result: progress, plan note, practice habit. */
+	function applyResult() {
+		const s = W.prac, r = s.result;
+		if (!r) return;
+		const now = Date.now(), date = isoDate(new Date());
+		const sum = C.applyPractice(W.progress, r, now, date);
+		saveProgress();
+		const topics = r.topics.filter(t => t.id).map(t => `${topicShort(t.id)} ${W.progress.topics[t.id].score} %`).join(", ");
+		appendToSection("day", date, `> Фінська · практика з ШІ ${r.minutes || "?"} хв (${r.mode || "практика"}): слів ${sum.words}${sum.err ? `, помилок ${sum.err}` : ""}${topics ? `; ${topics}` : ""}`);
+		save();
+		const habit = practiceHabitName();
+		if (habit) addHabitToday(habit);
+		console.info("[INFO] Practice applied:", sum);
+		toast(`Враховано: ${plural(sum.words, "слово", "слова", "слів")}, ${plural(sum.topics, "тема", "теми", "тем")}${sum.flagged ? `, ${sum.flagged} — на повторення` : ""}${sum.reviewed ? `, ${sum.reviewed} повторено` : ""}`);
+		W.prac = null;
+		if (W.sess) refreshAfterPractice();
+		back();
+	}
+
+	/** Words flagged by practice should appear in the running session as reviews. */
+	function refreshAfterPractice() {
+		const s = W.sess;
+		const due = C.dueReviewIds(W.progress, Date.now()).filter(id => !s.reviewQueue.includes(id));
+		s.reviewQueue.push(...due);
 	}
 
 	/* ============================================================
@@ -775,6 +1075,8 @@
 			case "stats": return statsHtml();
 			case "settings": return settingsHtml();
 			case "known": return knownHtml();
+			case "study": return studyHtml();
+			case "practice": return practiceHtml();
 			default: return sessionHtml();
 		}
 	}
@@ -791,6 +1093,7 @@
 		const ss = W.sess;
 		const canBack = ss.history.length > ss.browseDepth;
 		const bar = `<div class="w-bar">${ibtn("history", "histback", "Попереднє слово", canBack ? "" : "disabled")}<span class="sp"></span>
+			<button type="button" class="w-txtbtn" data-w="go" data-to="study">План · ШІ</button>
 			${ibtn("dictionary", "go", "Словник", 'data-to="dict"')}${ibtn("grammar", "go", "Граматика", 'data-to="grammar"')}
 			${ibtn("stats", "go", "Статистика", 'data-to="stats"')}${ibtn("settings", "go", "Налаштування", 'data-to="settings"')}</div>`;
 		return bar + `<div class="w-stage" id="wStage">${stageHtml(ss)}</div>`;
@@ -1268,6 +1571,21 @@
 			}
 			case "audio": downloadAudio(); redraw(); break;
 			case "audiostop": W.audioJob?.cancel(); break;
+			case "weekplan": addPracticeToWeek(); break;
+			case "pracset": {
+				const p = prac(), key = el.dataset.key;
+				p[key] = key === "mode" ? el.dataset.val : Number(el.dataset.val);
+				if (key === "count") p.words = null;
+				redraw();
+				break;
+			}
+			case "practopicsall": prac().allTopics = !prac().allTopics; redraw(); break;
+			case "pracword": prac().words = prac().words.filter(id => id !== Number(el.dataset.id)); redraw(); break;
+			case "praccopy": copyPrompt(); break;
+			case "pracpaste": pasteResult(); break;
+			case "pracparse": W.prac.text = document.getElementById("wPracIn").value; parseResult(); break;
+			case "pracapply": applyResult(); break;
+			case "pracclear": W.prac.result = null; redraw(); break;
 			default: console.warn("[WARNING] Unknown words action", a); break;
 		}
 	}
@@ -1296,6 +1614,8 @@
 			document.getElementById("wList").innerHTML = knownListHtml();
 			return;
 		}
+		if (t.id === "wPracSit") { prac().situation = t.value.slice(0, 200); return; }
+		if (t.id === "wPracIn") { prac().text = t.value; return; }
 		const key = t.dataset.wset;
 		if (!key || t.type !== "range") return;
 		const v = Number(t.value);
@@ -1307,6 +1627,11 @@
 	function onChange(e) {
 		if (state.tab !== "words") return;
 		const t = e.target, key = t.dataset.wset;
+		if (t.dataset.wtopic) {
+			const set = prac().topics;
+			t.checked ? set.add(t.dataset.wtopic) : set.delete(t.dataset.wtopic);
+			return redraw();
+		}
 		if (!key) return;
 		if (key === "auto") setSetting("auto", t.checked);
 		else if (key === "habit") setSetting("habit", t.value || null);
@@ -1422,6 +1747,41 @@
 		}
 	}
 
-	window.Words = { view, afterRender, isDirty, syncProgress, habitName: () => { if (!W.progress) W.progress = loadProgress(); return habitName(); } };
+	/** Progress line for the day view: today's words, waiting reviews, practices this week. */
+	function dayLine() {
+		if (!W.progress) W.progress = loadProgress();
+		const p = W.progress;
+		return `сьогодні ${C.graduatedSince(p, startOfToday())} / ${p.settings.goal} слів · повторень чекає ${C.dueReviewIds(p, Date.now()).length} · практик з ШІ за тиждень ${practicesSince(mondayIso()).length}`;
+	}
+
+	/** Summary of a week (Monday Date) for the week view, or "" when nothing happened. */
+	function weekLine(monday) {
+		if (!W.progress) W.progress = loadProgress();
+		const from = new Date(monday); from.setHours(0, 0, 0, 0);
+		const to = from.getTime() + 7 * C.DAY_MS;
+		const words = Object.values(W.progress.cards).filter(c => c.grad != null && c.grad >= from.getTime() && c.grad < to).length;
+		const fromIso = isoDate(from), toIso = isoDate(new Date(to));
+		const pr = (W.progress.practice || []).filter(e => e.date >= fromIso && e.date < toIso);
+		if (!words && !pr.length) return "";
+		return `вивчено ${plural(words, "слово", "слова", "слів")} · практик з ШІ ${pr.length}${pr.length ? ` (${pr.reduce((a, e) => a + e.min, 0)} хв)` : ""}`;
+	}
+
+	/** Measured progress html for a goal task with "слова:" / "теми:" fields ("" otherwise). */
+	function goalProgress(el) {
+		const g = el.kind === "task" && goalFields(el);
+		return g ? goalProgressHtml(g) : "";
+	}
+
+	/** Open the words tab on a given screen (from the day view buttons). */
+	function open(screen) {
+		W.screen = screen && screen !== "session" ? screen : "session";
+		W.stack = W.screen === "session" ? [] : [["session", {}]];
+		W.params = {};
+	}
+
+	window.Words = {
+		view, afterRender, isDirty, syncProgress, dayLine, weekLine, goalProgress, open,
+		habitName: () => { if (!W.progress) W.progress = loadProgress(); return habitName(); },
+	};
 	installEvents();
 })();
