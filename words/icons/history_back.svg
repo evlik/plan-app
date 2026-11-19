@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="100%" height="100%" viewBox="0 0 24 24" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" xml:space="preserve" xmlns:serif="http://www.serif.com/" style="fill-rule:evenodd;clip-rule:evenodd;stroke-linecap:round;stroke-linejoin:round;stroke-miterlimit:1.5;">
+    <g transform="matrix(1,0,0,1,-83.102604,-141.939024)">
+        <g id="ic_history_back" transform="matrix(1,0,0,1,157.102604,114.939024)">
+            <rect x="-74" y="27" width="24" height="24" style="fill:none;"/>
+            <g transform="matrix(1,0,0,1,-159.448698,2.25)">
+                <path d="M94.346,35.75C94.346,35.75 96.513,35.25 97.346,35.75C98.179,36.25 98.679,39.083 99.346,38.75C100.013,38.417 100.513,33.083 101.346,33.75C102.179,34.417 103.846,43.417 104.346,42.75C104.846,42.083 104.346,29.75 104.346,29.75" style="fill:none;stroke:black;stroke-width:0.83px;"/>
+            </g>
+            <g transform="matrix(1,0,0,1.142857,-157.448698,-2.178571)">
+                <path d="M88.346,35.156C88.346,35.179 92.346,31.656 92.346,31.656L92.346,38.656L88.346,35.156Z" style="fill:none;stroke:black;stroke-width:0.78px;"/>
+            </g>
+        </g>
+    </g>
+</svg>

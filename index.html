@@ -2,11 +2,12 @@
 <html lang="uk">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, interactive-widget=resizes-content">
 <meta name="theme-color" content="#2f6f5e">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
 <link rel="apple-touch-icon" href="icon.svg">
+<link rel="stylesheet" href="words/words.css">
 <title>План</title>
 <style>
 :root {
@@ -73,8 +74,8 @@ form.add input { flex: 1; min-width: 0; padding: 10px 12px; border: 1px solid va
 textarea.rawedit { width: 100%; min-height: 55vh; font: 13px/1.55 var(--mono); padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--bg); resize: vertical; white-space: pre; overflow-wrap: normal; overflow-x: auto; }
 .row { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
 
-nav.tabs { position: fixed; bottom: 0; left: 0; right: 0; z-index: 6; display: grid; grid-template-columns: repeat(7, 1fr); background: var(--panel); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
-nav.tabs button { border: 0; border-radius: 0; background: transparent; padding: 8px 0 10px; font-size: 12px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 2px; }
+nav.tabs { position: fixed; bottom: 0; left: 0; right: 0; z-index: 6; display: grid; grid-template-columns: repeat(8, 1fr); background: var(--panel); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom); }
+nav.tabs button { border: 0; border-radius: 0; background: transparent; padding: 8px 0 10px; font-size: 11px; color: var(--muted); display: flex; flex-direction: column; align-items: center; gap: 2px; min-width: 0; }
 nav.tabs button span { font-size: 19px; line-height: 1; }
 nav.tabs button.active { color: var(--accent); font-weight: 600; }
 
@@ -115,6 +116,7 @@ details summary { cursor: pointer; }
 	<button data-tab="week"><span>▦</span>Тиждень</button>
 	<button data-tab="month"><span>▤</span>Місяць</button>
 	<button data-tab="goals"><span>◎</span>Цілі</button>
+	<button data-tab="words"><span>ä</span>Слова</button>
 	<button data-tab="money"><span>¤</span>Гроші</button>
 	<button data-tab="inbox"><span>⇣</span>Вхідні</button>
 	<button data-tab="file"><span>≡</span>Файл</button>
@@ -122,6 +124,8 @@ details summary { cursor: pointer; }
 <div class="toast" id="toast"></div>
 <input type="file" id="importInput" accept=".plan,.txt,.md,text/plain" hidden>
 
+<script src="words/core.js"></script>
+<script src="words/ui.js"></script>
 <script>
 "use strict";
 
@@ -670,7 +674,16 @@ async function syncNow({ manual = false, keepalive = false } = {}) {
 	sync.busy = true;
 	setSyncStatus("синхронізація…");
 	try {
-		const result = await syncOnce(cfg, keepalive);
+		let result = await syncOnce(cfg, keepalive);
+		// learning progress of the words tab lives next to the plan (words.json) and merges per word
+		try {
+			const words = await Words.syncProgress(cfg, keepalive);
+			if (words && words !== "актуально") result += ` · слова: ${words}`;
+		} catch (err) {
+			console.error("[ERROR] Words sync:", err);
+			result += ` · слова: ${err.message}`;
+			if (err.retryable) scheduleRetry();
+		}
 		sync.retryDelay = 0;
 		setSyncStatus(result);
 		if (manual) toast(result);
@@ -718,7 +731,7 @@ function syncStatusText() {
 
 /** Mark the File tab when there are changes not yet on GitHub. */
 function updateSyncBadge() {
-	document.querySelector('#tabs [data-tab="file"]')?.classList.toggle("dirty", isDirty());
+	document.querySelector('#tabs [data-tab="file"]')?.classList.toggle("dirty", isDirty() || Words.isDirty());
 }
 
 /** Validate and store sync settings from the form, then sync. */
@@ -827,8 +840,9 @@ function setHeader(title, sub, arrows) {
 /** Re-render the current tab. */
 function render() {
 	document.querySelectorAll("#tabs [data-tab]").forEach(b => b.classList.toggle("active", b.dataset.tab === state.tab));
-	const views = { day: viewDay, week: viewWeek, month: viewMonth, goals: viewGoals, money: viewMoney, inbox: viewInbox, file: viewFile };
+	const views = { day: viewDay, week: viewWeek, month: viewMonth, goals: viewGoals, words: () => Words.view(), money: viewMoney, inbox: viewInbox, file: viewFile };
 	document.getElementById("main").innerHTML = views[state.tab]();
+	Words.afterRender(state.tab);
 }
 
 /** Day view: main tasks, other tasks, habits, notes. */
@@ -847,7 +861,7 @@ function viewDay() {
 	const weekGoals = sectionItems("week", isoWeek(d)).filter(i => i.el.kind === "task" && i.el.state === "open" && !i.el.sub);
 	const dueSoon = upcomingBills(d, 2);
 	const R = getRates();
-	const finnish = /android/i.test(navigator.userAgent) && habits.some(h => /^фінськ/i.test(h));
+	const wordsHabit = Words.habitName();
 	return `
 		${dueSoon.length ? `<section class="block" style="border-color:var(--warn)"><h2>Платежі найближчими днями</h2>${dueSoon.map(b => billRow(b, R)).join("")}</section>` : ""}
 		<section class="block">
@@ -862,7 +876,7 @@ function viewDay() {
 		</section>
 		${habits.length ? `<section class="block"><h2>Звички</h2><div class="habits">
 			${habits.map(h => `<button data-habit="${esc(h)}" class="${doneHabits.has(h) ? "on" : ""}">${esc(h)}</button>`).join("")}
-		</div>${finnish ? `<div class="row"><a href="intent:#Intent;action=android.intent.action.MAIN;category=android.intent.category.LAUNCHER;package=com.microsprint.srs;end"><button type="button">Відкрити Micro-Sprint</button></a></div>` : ""}</section>` : ""}
+		</div>${wordsHabit && today ? `<div class="row"><button type="button" data-gotab="words">Вчити слова</button></div>` : ""}</section>` : ""}
 		<section class="block">
 			<h2>Нотатки</h2>
 			${renderItems(notes)}
@@ -1775,6 +1789,8 @@ document.getElementById("main").addEventListener("click", async e => {
 	if (goday) { state.cursor = parseDate(goday.dataset.goday); state.tab = "day"; return render(); }
 	const goweek = t.closest("[data-goweek]");
 	if (goweek) { state.cursor = parseDate(goweek.dataset.goweek); state.tab = "week"; return render(); }
+	const gotab = t.closest("[data-gotab]");
+	if (gotab) { state.tab = gotab.dataset.gotab; render(); return scrollTo(0, 0); }
 	const catPick = t.closest("[data-catpick]");
 	if (catPick) {
 		const input = document.querySelector('form[data-money="tx"] input');
@@ -1900,7 +1916,7 @@ if (navigator.storage && navigator.storage.persist) {
 // Sync triggers: start, back to the app, network back, leaving the app.
 syncNow();
 document.addEventListener("visibilitychange", () => {
-	if (document.visibilityState === "hidden") { if (isDirty()) syncNow({ keepalive: true }); }
+	if (document.visibilityState === "hidden") { if (isDirty() || Words.isDirty()) syncNow({ keepalive: true }); }
 	else syncNow();
 });
 window.addEventListener("online", () => syncNow());
