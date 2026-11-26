@@ -150,3 +150,12 @@ body.w-typing .w-stage { min-height: calc(100dvh - 130px); }
 	body.w-typing nav.tabs { display: none; }
 	body.w-typing main { padding-bottom: 16px; }
 }
+
+/* review card kinds */
+.w-kind { font-size: 12px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); margin-bottom: 10px; }
+.w-listen { width: 96px; height: 96px; border-radius: 50%; border: 2px solid var(--accent); background: var(--accent-soft); color: var(--accent); line-height: 0; margin: 6px auto; display: flex; align-items: center; justify-content: center; }
+.w-listen .wi { transform: scale(1.8); }
+.w-grade { justify-content: center; margin-top: 18px; }
+.w-grade button { min-width: 130px; padding: 12px 16px; }
+/* bigger tap targets inside examples, so a slightly missed tap does not land on the card */
+.w-tr .w-ibtn, .w-ex-line .w-ibtn { min-width: 40px; min-height: 40px; display: inline-flex; align-items: center; justify-content: center; }

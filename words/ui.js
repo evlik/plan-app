@@ -405,9 +405,12 @@
 		if (s.miniWord) return redraw();
 		const next = s.scheduler.nextCard();
 		s.card = next;
+		s.selfShown = false;
 		if (next) {
-			s.input = new C.WordInput(word(next.wordId).fi);
-			if (next.type === "presentation") playWord(next.wordId);
+			// long-term reviews rotate between kinds; the micro-deck, known checks and the mini-test stay "type"
+			if (next.type === "filler" && next.kind === "REVIEW_DUE") next.mode = C.pickReviewKind(W.progress.settings.kinds || C.REVIEW_KINDS);
+			s.input = new C.WordInput(isSelfCard(next) ? "" : word(next.wordId).fi);
+			if (next.type === "presentation" || next.mode === "listen" || next.mode === "hear" || next.mode === "recall") playWord(next.wordId);
 		} else if (s.scheduler.isFinished) {
 			return startMiniTest();
 		} else {
@@ -470,10 +473,45 @@
 		redraw();
 	}
 
+	/** Self-graded review card (meaning from the Finnish word or from audio): no typing. */
+	function isSelfCard(c) {
+		return !!c && (c.mode === "recall" || c.mode === "hear");
+	}
+
+	/** Self-graded card: reveal the answer, then wait for "remembered / not". */
+	function selfShow() {
+		const s = W.sess;
+		if (!s || !isSelfCard(s.card) || s.selfShown) return;
+		s.selfShown = true;
+		if (s.card.mode === "hear") playWord(s.card.wordId);
+		redraw();
+	}
+
+	/** Self-graded card answered: FSRS update (remembered = HARD, not = AGAIN and back into work). */
+	function selfGrade(remembered) {
+		const s = W.sess;
+		if (!s || !isSelfCard(s.card) || !s.selfShown) return;
+		const id = s.card.wordId, now = Date.now();
+		C.reviewAnswered(W.progress, id, C.reviewRating(s.card.mode, remembered), now);
+		if (!remembered) s.scheduler.addToPool(id);
+		saveProgress();
+		advance();
+	}
+
+	/** Auto-advance stops as soon as the learner works with the reveal (examples, translations, grammar). */
+	function pauseAuto() {
+		const s = W.sess;
+		if (s && s.autoTimer) {
+			clearTimeout(s.autoTimer);
+			s.autoTimer = null;
+			if (s.reveal) s.reveal.autoPaused = true;
+		}
+	}
+
 	/** Typed text changed. */
 	function onTyped(value) {
 		const s = W.sess;
-		if (!s || s.feedback || s.reveal) return syncInputValue();
+		if (!s || s.feedback || s.reveal || isSelfCard(s.card)) return syncInputValue();
 		s.input = s.input.userChange(value.replace(/\s+/g, ""));
 		syncInputValue();
 		if (s.input.isComplete) return finishAttempt();
@@ -483,7 +521,7 @@
 	/** Hint button: put in the next correct letter. */
 	function onHint() {
 		const s = W.sess;
-		if (!s || s.feedback || s.reveal || s.miniWord) return;
+		if (!s || s.feedback || s.reveal || s.miniWord || !s.card || isSelfCard(s.card)) return;
 		s.input = s.input.withHint();
 		syncInputValue();
 		if (s.input.isComplete) return finishAttempt();
@@ -493,7 +531,7 @@
 	/** Peek button: show the Finnish word as a watermark (penalised). */
 	function onPeek() {
 		const s = W.sess;
-		if (!s || s.feedback || s.reveal || s.miniWord) return;
+		if (!s || s.feedback || s.reveal || s.miniWord || !s.card || isSelfCard(s.card)) return;
 		s.peeked = true;
 		redraw();
 	}
@@ -503,6 +541,7 @@
 		const s = W.sess;
 		if (!s) return;
 		if (s.reveal) return onRevealAction("TAP");
+		if (isSelfCard(s.card)) { if (!s.selfShown) selfShow(); return; }
 		if (s.feedback || !s.input.text) return;
 		finishAttempt();
 	}
@@ -549,8 +588,8 @@
 			s.stepTimer = setTimeout(advance, 450);
 			return;
 		}
-		// review filler: implicit FSRS rating (clean GOOD, hint HARD, otherwise AGAIN)
-		const rating = result === C.RESULT.CLEAN ? C.RATING.GOOD : result === C.RESULT.WITH_HINT ? C.RATING.HARD : C.RATING.AGAIN;
+		// review filler ("type" or "listen"): implicit FSRS rating (clean GOOD, hint HARD, otherwise AGAIN)
+		const rating = C.reviewRating(c.mode || "type", result);
 		C.reviewAnswered(p, id, rating, now);
 		saveProgress();
 		if (rating === C.RATING.AGAIN) s.scheduler.addToPool(id);
@@ -789,7 +828,7 @@
 			<div class="row"><button class="primary" data-w="go" data-to="practice">Практика з ШІ</button><button data-w="weekplan">Додати в план тижня</button></div>
 			<div class="w-gh">Рівні</div>
 			${levels.map(([l, s]) => `<div class="w-set"><div class="lab"><span>${l}</span><span class="w-sub">засвоєно ${s.mastered} / ${s.total} · середнє ${s.avg} %</span></div>${bar(s.avg, 100)}</div>`).join("")}
-			<p class="w-sub">Тема засвоєна, коли оцінка з практик з ШІ ≥ ${C.MASTERED} %. Оцінка згладжується: нова практика важить 60 %.</p>
+			<p class="w-sub">Тема засвоєна після 3 успішних практик у різні дні, остання — щонайменше через тиждень після першої. Успіх: фінальна перевірка ≥ 80 % і загалом ≥ 70 % правильних без підказок. Повтори теми: 1 → 3 → 7 → 14 → 30 днів; провал повертає до 1 дня.</p>
 			<div class="w-gh">Останні практики</div>
 			${log.length ? log.map(e => `<div class="w-usage"><div>${esc(e.date)} · ${e.min} хв · ${esc(e.mode || "практика")} · слів ${e.words}${e.err ? `, помилок ${e.err}` : ""}</div>
 				<div class="u">${Object.entries(e.topics || {}).map(([id, s]) => `${esc(topicShort(id))} ${s} %`).join(", ")}${e.note ? " — " + esc(e.note) : ""}</div></div>`).join("")
@@ -841,7 +880,7 @@
 		return C.buildPracticePrompt({
 			learned: C.learnedCount(W.progress), goal: promptGoal(), minutes: s.minutes, mode: s.mode, situation: s.situation.trim(),
 			topics: [...s.topics].map(id => W.course.topics.get(id)).filter(Boolean).map(t => ({ ...t, ...(W.progress.topics[t.id] || { score: 0, n: 0 }) })),
-			words: s.words.map(id => { const w = word(id); return { fi: w.fi, tr: w.tr.join(", ") }; }),
+			words: s.words.map(id => { const w = word(id); return { id, tr: w.tr.join(", "), cat: w.cat }; }),
 		});
 	}
 
@@ -852,15 +891,16 @@
 		const topicList = s.allTopics ? W.course.list.slice().sort((a, b) => a.level.localeCompare(b.level)) : C.recommendTopics(W.progress, W.course.list, learnedTopicUsage(), 6);
 		[...s.topics].forEach(id => { if (!topicList.some(t => t.id === id)) { const t = W.course.topics.get(id); if (t) topicList.unshift(t); } });
 		return `${backBar()}<div class="w-title">Практика з ШІ</div>
-			<p class="w-sub">1. Налаштуй і скопіюй промт. 2. Встав у чат з будь-яким ШІ і тренуйся. 3. Напиши «кінець», скопіюй відповідь з блоком <b>plan-practice</b> і встав нижче — апка відмітить прогрес.</p>
+			<p class="w-sub">1. Налаштуй і скопіюй промт. 2. Встав у чат з будь-яким ШІ і тренуйся. 3. Напиши «кінець», пройди фінальну перевірку, скопіюй відповідь з блоком <b>plan-practice</b> і встав нижче.</p>
+			<div class="w-set"><div>Як просити допомогу в чаті</div><div class="w-sub"><b>?</b> — підказка (перша літера, закінчення) · <b>??</b> — покажи відповідь · <b>*</b> в кінці відповіді — «я підглянув» (словник, нотатки). Чесна позначка = правильний розклад повторень: підглянуте слово повернеться раніше, а не зникне на тижні.</div></div>
 			<div class="w-set"><div>Режим</div>${chips(Object.entries(C.PRACTICE_MODES).map(([k, v]) => [k, v[0]]), "mode", s.mode)}</div>
 			<div class="w-set"><div>Тривалість</div>${chips([[10, "10 хв"], [15, "15 хв"], [20, "20 хв"], [30, "30 хв"]], "minutes", s.minutes)}</div>
 			<div class="w-set"><div>Ситуація (необовʼязково)</div><div class="w-search"><input id="wPracSit" value="${esc(s.situation)}" placeholder="на роботі, у магазині, співбесіда…" autocomplete="off"></div></div>
 			<div class="w-set"><div class="lab"><span>Теми · обрано ${s.topics.size}</span><button class="ghost" data-w="practopicsall">${s.allTopics ? "рекомендовані" : "усі теми"}</button></div>
 				${topicList.map(t => { const st = W.progress.topics[t.id]; return `<label class="w-trow"><input type="checkbox" data-wtopic="${esc(t.id)}" ${s.topics.has(t.id) ? "checked" : ""}><span class="lv">${esc(t.level)}</span><span class="t">${esc(t.title)}</span><span class="n">${st && st.n ? st.score + " %" : C.topicStatus(st).label}</span></label>`; }).join("")}</div>
 			<div class="w-set"><div class="lab"><span>Слова · ${s.words.length}</span>${chips([[10, "10"], [20, "20"], [30, "30"]], "count", s.count)}</div>
-				<div class="w-sub">спершу слова з помилками, прострочені повторення, ті, що в роботі, і свіжі. Тап по слову — прибрати.</div>
-				<div class="w-kchips" style="margin-top:8px">${s.words.map(id => `<button type="button" data-w="pracword" data-id="${id}">${esc(word(id).fi)}</button>`).join("") || '<span class="w-sub">Ще немає вивчених слів — спершу пройди кілька сесій.</span>'}</div></div>
+				<div class="w-sub">спершу слова з помилками, прострочені повторення, ті, що в роботі, і свіжі. Показано українською, щоб не підглядати фінське. Тап по слову — прибрати.</div>
+				<div class="w-kchips" style="margin-top:8px">${s.words.map(id => `<button type="button" data-w="pracword" data-id="${id}">${esc(word(id).tr[0])}</button>`).join("") || '<span class="w-sub">Ще немає вивчених слів — спершу пройди кілька сесій.</span>'}</div></div>
 			<div class="row"><button class="primary" data-w="praccopy" ${s.topics.size || s.words.length ? "" : "disabled"}>Копіювати промт</button></div>
 			<details style="margin-top:8px"><summary class="hint">Показати промт</summary><textarea class="rawedit" id="wPracPrompt" readonly style="min-height:40vh">${esc(practicePrompt())}</textarea></details>
 			<div class="w-gh">Результати</div>
@@ -872,20 +912,26 @@
 	/** Preview of a parsed result: what will change, before applying. */
 	function resultPreviewHtml(r) {
 		const now = Date.now();
-		const effect = w => {
-			const c = C.cardOf(W.progress, w.id);
-			if (w.err > 0 && w.err >= w.ok && (c.st === "REVIEW" || c.st === "KNOWN")) return "→ на найближче повторення";
-			if (w.ok > 0 && w.err === 0 && c.st === "REVIEW" && c.due != null && c.due <= now) return "→ зараховано як повторення";
-			return c.st === "NEW" ? "ще не вчив у сесіях" : "";
-		};
 		const known = r.words.filter(w => w.id != null), unknown = r.words.filter(w => w.id == null);
-		return `<div class="w-set"><div>${r.minutes ? `${r.minutes} хв · ` : ""}${esc(r.mode || "практика")} · слів ${known.length} · тем ${r.topics.filter(t => t.id).length}</div>
-			${r.note ? `<p class="w-sub">${esc(r.note)}</p>` : ""}
-			${known.map(w => `<div class="w-trow"><span class="t">${esc(w.fi)}</span><span class="n">✓${w.ok}${w.err ? ` ✗${w.err}` : ""} ${effect(w)}</span></div>`).join("")}
-			${unknown.length ? `<p class="w-sub">Не з курсу (не враховуються): ${unknown.map(w => esc(w.fi)).join(", ")}</p>` : ""}
-			${r.topics.map(t => { const prev = t.id && W.progress.topics[t.id]; const next = prev && prev.n ? Math.round(prev.score * 0.4 + t.score * 0.6) : t.score;
-				return `<div class="w-trow"><span class="t">${esc(t.id ? W.course.topics.get(t.id).title : t.raw + " — тема не знайдена")}</span><span class="n">${t.id ? `${prev && prev.n ? prev.score + " → " : ""}${next} %` : ""}</span></div>`; }).join("")}
-			<div class="row"><button class="primary" data-w="pracapply">Застосувати</button><button data-w="pracclear">Скасувати</button></div></div>`;
+		const head = `<div>${r.minutes ? `${r.minutes} хв · ` : ""}${esc(r.mode || "практика")} · слів ${known.length} · тем ${r.topics.filter(t => t.id).length}</div>
+			${r.note ? `<p class="w-sub">${esc(r.note)}</p>` : ""}`;
+		const buttons = `<div class="row"><button class="primary" data-w="pracapply">Застосувати</button><button data-w="pracclear">Скасувати</button></div>`;
+		if (r.version !== 2) {
+			return `<div class="w-set">${head}<p class="w-sub warn">Це старий формат (PRACTICE 1): у ньому ШІ сам ставив оцінки і не знав про підглядання. Його буде записано лише в журнал, без впливу на повторення і теми. Для нової сесії скопіюй новий промт.</p>${buttons}</div>`;
+		}
+		const counts = w => [w.clean && `✓${w.clean}`, w.hint && `?${w.hint}`, w.shown && `??${w.shown}`, w.peek && `*${w.peek}`, w.wrong && `✗${w.wrong}`].filter(Boolean).join(" ")
+			+ (w.final ? ` · фінал ${w.final === "ok" ? "✓" : "✗"}` : "");
+		const topicRow = t => {
+			if (!t.id) return `<div class="w-trow"><span class="t">${esc(t.raw)} — тема не знайдена</span></div>`;
+			const next = C.nextTopicState(W.progress.topics[t.id], t, now);
+			const verdict = next.success ? (next.st === "mastered" ? "засвоєно ✓" : `успіх ${next.wins}/3 · далі через ${next.iv} дн`) : "не зараховано · повтор завтра";
+			return `<div class="w-trow"><span class="t">${esc(W.course.topics.get(t.id).title)}</span><span class="n">${t.ok}/${t.ok + t.wrong + t.hint + t.peek}${t.fAll ? ` · фінал ${t.fOk}/${t.fAll}` : ""} · ${verdict}</span></div>`;
+		};
+		return `<div class="w-set">${head}
+			${known.map(w => `<div class="w-trow"><span class="t">${esc(word(w.id).fi)}</span><span class="n">${counts(w)} ${C.PRACTICE_ACTION_LABEL[C.practiceWordAction(C.cardOf(W.progress, w.id), w, now)]}</span></div>`).join("")}
+			${unknown.length ? `<p class="w-sub">Не з курсу (не враховуються): ${unknown.map(w => esc(w.code)).join(", ")}</p>` : ""}
+			${r.topics.map(topicRow).join("")}
+			${buttons}</div>`;
 	}
 
 	/** Copy the prompt (falls back to selecting it in the preview). */
@@ -920,7 +966,7 @@
 		const byFi = new Map();
 		W.course.order.forEach(id => { const w = word(id); if (!byFi.has(w.fi.toLowerCase())) byFi.set(w.fi.toLowerCase(), id); });
 		try {
-			s.result = C.parsePracticeResult(s.text, { byFi, topics: W.course.list });
+			s.result = C.parsePracticeResult(s.text, { byFi, topics: W.course.list, has: id => W.course.words.has(id) });
 		} catch (err) {
 			s.result = null;
 			toast(err.message);
@@ -936,13 +982,14 @@
 		const now = Date.now(), date = isoDate(new Date());
 		const sum = C.applyPractice(W.progress, r, now, date);
 		saveProgress();
-		const topics = r.topics.filter(t => t.id).map(t => `${topicShort(t.id)} ${W.progress.topics[t.id].score} %`).join(", ");
+		const topics = sum.legacy ? "" : r.topics.filter(t => t.id).map(t => `${topicShort(t.id)} ${W.progress.topics[t.id].score} %`).join(", ");
 		appendToSection("day", date, `> Фінська · практика з ШІ ${r.minutes || "?"} хв (${r.mode || "практика"}): слів ${sum.words}${sum.err ? `, помилок ${sum.err}` : ""}${topics ? `; ${topics}` : ""}`);
 		save();
 		const habit = practiceHabitName();
 		if (habit) addHabitToday(habit);
 		console.info("[INFO] Practice applied:", sum);
-		toast(`Враховано: ${plural(sum.words, "слово", "слова", "слів")}, ${plural(sum.topics, "тема", "теми", "тем")}${sum.flagged ? `, ${sum.flagged} — на повторення` : ""}${sum.reviewed ? `, ${sum.reviewed} повторено` : ""}`);
+		toast(sum.legacy ? "Старий формат: записано лише в журнал"
+			: `Враховано: ${plural(sum.words, "слово", "слова", "слів")}, ${plural(sum.topics, "тема", "теми", "тем")}${sum.forgot ? `, ${sum.forgot} — назад у роботу` : ""}${sum.flagged ? `, ${sum.flagged} — на повторення` : ""}${sum.reviewed ? `, ${sum.reviewed} повторено` : ""}`);
 		W.prac = null;
 		if (W.sess) refreshAfterPractice();
 		back();
@@ -1133,11 +1180,33 @@
 			return `${wordHeader(w)}<div style="height:18px"></div>${examplesHtml(w, s.openTr)}<div style="height:20px"></div>${cellsHtml()}
 				<div class="w-tools"><span></span>${keysHtml()}<span></span></div>`;
 		}
-		// challenge or filler: only the Ukrainian word, the input and two tools
-		return `<div class="w-prompt ${c.type === "challenge" && c.level === "COOLING" ? "cool" : ""}">${esc(w.tr[0])}</div>
+		if (isSelfCard(c)) return selfCardHtml(c, w, s);
+		// challenge or filler: the Ukrainian word (or the sound for "listen"), the input and two tools
+		const prompt = c.mode === "listen"
+			? `<div class="w-kind">повторення · почуй і напиши фінською</div>${listenBtn(w)}`
+			: `${c.type === "filler" && c.kind === "REVIEW_DUE" ? '<div class="w-kind">повторення · напиши фінською</div>' : ""}<div class="w-prompt ${c.type === "challenge" && c.level === "COOLING" ? "cool" : ""}">${esc(w.tr[0])}</div>`;
+		return `${prompt}
 			<div class="w-peekslot">${s.peeked ? esc(w.fi) : ""}</div>
 			${cellsHtml()}
 			<div class="w-tools">${ibtn("peek", "peek", "Підглянути (штраф)")}${keysHtml()}${ibtn("hint", "hint", "Підставити літеру")}</div>`;
+	}
+
+	/** Big "play again" button of the audio cards. */
+	function listenBtn(w) {
+		return `<button type="button" class="w-listen" data-w="replay" data-id="${w.id}" aria-label="Прослухати ще раз" title="Прослухати ще раз"><i class="wi wi-audio"></i></button>`;
+	}
+
+	/** Self-graded review: Finnish word (recall) or sound (hear) -> show the answer -> remembered / not. */
+	function selfCardHtml(c, w, s) {
+		const kind = c.mode === "recall" ? "повторення · що означає це слово?" : "повторення · почуй і згадай значення";
+		const top = c.mode === "recall" ? `<div class="w-fi" data-w="say" data-id="${w.id}">${esc(w.fi)}</div>` : listenBtn(w);
+		if (!s.selfShown) {
+			return `<div class="w-kind">${kind}</div>${top}<div style="height:28px"></div>
+				<div class="row" style="justify-content:center"><button type="button" class="primary" data-w="selfshow">Показати відповідь</button></div>
+				<div class="w-tapme">спершу згадай сам · Enter — показати</div>`;
+		}
+		return `<div class="w-kind">${kind}</div>${wordHeader(w)}<div style="height:16px"></div>${examplesHtml(w, s.openTr)}
+			<div class="row w-grade"><button type="button" data-w="selfgrade" data-ok="0">Не згадав <span class="w-muted">1</span></button><button type="button" class="primary" data-w="selfgrade" data-ok="1">Згадав <span>2</span></button></div>`;
 	}
 
 	/** ä / ö buttons for keyboards without Finnish letters. */
@@ -1152,7 +1221,8 @@
 			${wordHeader(r.word, r.canGraduate)}
 			<div style="height:20px"></div>${examplesHtml(r.word, s.openTr)}
 			${r.canGraduate ? '<button type="button" class="w-grad" data-w="graduate">← вивчено</button>' : ""}
-			<div class="w-tapme">${r.canKeep ? "тап або Enter — далі · свайп вправо — «ще плаваю»" : "тап або Enter — далі"}</div>
+			<div class="row" style="justify-content:center"><button type="button" class="primary" data-w="revealnext">Далі →</button></div>
+			<div class="w-tapme">${r.canKeep ? "Enter або тап поза прикладами — далі · свайп вправо — «ще плаваю»" : "Enter або тап поза прикладами — далі"}${r.autoPaused ? " · авто-гортання зупинено" : ""}</div>
 		</div>`;
 	}
 
@@ -1321,6 +1391,9 @@
 			<div class="w-set"><label class="lab"><span>Авто-гортання після вводу<br><span class="w-sub">${st.auto ? "картка гортається сама" : "далі — тапом, Enter або свайпом"}</span></span><input type="checkbox" data-wset="auto" ${st.auto ? "checked" : ""}></label></div>
 			<div class="w-set" ${st.auto ? "" : 'style="opacity:.5"'}><div>Тривалість показу: <b id="wSecsV">${st.secs}</b> с</div>
 				<input type="range" min="1" max="10" step="1" value="${st.secs}" data-wset="secs" ${st.auto ? "" : "disabled"}></div>
+			<div class="w-set"><div>Види карток у повтореннях</div><div class="w-sub">нові слова завжди вчаться вводом фінською; повторення чергуються між увімкненими видами (половина — ввід)</div>
+				${[["type", "Українське → написати фінською"], ["listen", "Аудіо → написати фінською"], ["recall", "Фінське → згадати переклад"], ["hear", "Аудіо → згадати переклад"]].map(([k, t]) =>
+					`<label class="w-trow"><input type="checkbox" data-wkind="${k}" ${(st.kinds || C.REVIEW_KINDS).includes(k) ? "checked" : ""}><span class="t">${t}</span></label>`).join("")}</div>
 			<div class="w-set"><div>Звичка в плані</div><div class="w-sub">відмічається сама, коли за день вивчено стільки слів, скільки в її назві (або 5)</div>
 				<select data-wset="habit"><option value="">Автоматично${auto ? ` (${esc(auto)})` : " (не знайдено)"}</option><option value="-" ${st.habit === "-" ? "selected" : ""}>Не відмічати</option>
 				${habits.map(h => `<option value="${esc(h)}" ${st.habit === h ? "selected" : ""}>${esc(h)}</option>`).join("")}</select></div>
@@ -1507,14 +1580,20 @@
 			case "back": back(); break;
 			case "introdone": setSetting("introDone", true); W.screen = "session"; W.stack = []; redraw(); break;
 			case "knowndone": setSetting("introDone", true); W.screen = "session"; W.stack = []; refreshKnownExclusions(); redraw(); break;
-			case "say": e.stopPropagation(); playWord(el.dataset.id); break;
+			case "say": e.stopPropagation(); pauseAuto(); playWord(el.dataset.id); break;
+			case "replay": e.stopPropagation(); playWord(el.dataset.id); break;
+			case "selfshow": selfShow(); break;
+			case "selfgrade": selfGrade(el.dataset.ok === "1"); break;
+			case "revealnext": onRevealAction("TAP"); break;
 			case "sayex":
 				e.stopPropagation();
+				pauseAuto();
 				if (!el.dataset.long) playExample(el.dataset.id, el.dataset.ex, false);
 				delete el.dataset.long;
 				break;
 			case "trtoggle": {
 				e.stopPropagation();
+				pauseAuto();
 				const set = W.screen === "word" ? W.params.openTr : s.openTr;
 				set.has(el.dataset.key) ? set.delete(el.dataset.key) : set.add(el.dataset.key);
 				redraw();
@@ -1522,6 +1601,7 @@
 			}
 			case "tok": {
 				e.stopPropagation();
+				pauseAuto();
 				if (!openSheet(Number(el.dataset.id), Number(el.dataset.ex), Number(el.dataset.tok)) && W.screen !== "topic") {
 					const key = `${el.dataset.id}:${el.dataset.ex}`;
 					const set = W.screen === "word" ? W.params.openTr : s.openTr;
@@ -1541,10 +1621,16 @@
 				inp?.focus({ preventScroll: true });
 				break;
 			}
-			case "revealtap": onRevealAction("TAP"); break;
+			case "revealtap":
+				// a tap that misses a small control inside the examples must not skip the word
+				if (e.target.closest(".w-ex, .w-chips, .w-diff, .w-topics")) { pauseAuto(); break; }
+				onRevealAction("TAP");
+				break;
 			case "graduate": e.stopPropagation(); onRevealAction("SWIPE_LEFT"); break;
 			case "histback": if (s && s.history.length > s.browseDepth) { s.browseDepth++; stopTimersForLeave(); redraw(); } break;
-			case "browseexit": s.browseDepth = 0; if (!s.card && !s.miniWord && s.done == null && !s.reveal) advance(); else redraw(); break;
+			case "browseexit":
+				if (e.target.closest(".w-ex, .w-chips")) break;
+				s.browseDepth = 0; if (!s.card && !s.miniWord && s.done == null && !s.reveal) advance(); else redraw(); break;
 			case "dictmode": W.dictMode = el.dataset.mode; redraw(); break;
 			case "openword": playWord(el.dataset.id); go("word", { wordId: Number(el.dataset.id), openTr: new Set() }); break;
 			case "month": {
@@ -1627,6 +1713,13 @@
 	function onChange(e) {
 		if (state.tab !== "words") return;
 		const t = e.target, key = t.dataset.wset;
+		if (t.dataset.wkind) {
+			const kinds = new Set(W.progress.settings.kinds || C.REVIEW_KINDS);
+			t.checked ? kinds.add(t.dataset.wkind) : kinds.delete(t.dataset.wkind);
+			if (!kinds.size) { toast("Потрібен хоча б один вид карток"); t.checked = true; return; }
+			setSetting("kinds", C.REVIEW_KINDS.filter(k => kinds.has(k)));
+			return;
+		}
 		if (t.dataset.wtopic) {
 			const set = prac().topics;
 			t.checked ? set.add(t.dataset.wtopic) : set.delete(t.dataset.wtopic);
@@ -1650,6 +1743,12 @@
 	function onKeyDown(e) {
 		if (state.tab !== "words" || e.target.id !== "wIn") return;
 		const s = W.sess;
+		// a grammar sheet is open: keys belong to it, never to the card behind
+		if (document.querySelector(".sheet-bg")) { if (e.key === "Enter") e.preventDefault(); return; }
+		if (s && isSelfCard(s.card) && !s.reveal) {
+			if (e.key === "Enter") { e.preventDefault(); selfShow(); return; }
+			if (s.selfShown && (e.key === "1" || e.key === "2")) { e.preventDefault(); selfGrade(e.key === "2"); return; }
+		}
 		if (e.key === "Enter") { e.preventDefault(); onSubmit(); return; }
 		if (s && s.reveal && (e.key === "ArrowRight" || e.key === "ArrowLeft")) {
 			e.preventDefault();

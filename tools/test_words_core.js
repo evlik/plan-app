@@ -393,60 +393,141 @@ test("практика: розбір блоку plan-practice", () => {
 	assert.throws(() => C.parsePracticeResult("```plan-practice\nPRACTICE 1\n```", COURSE), /word:/);
 });
 
-test("практика: застосування — помилки на повторення, прострочене правильне — як повторення", () => {
+test("практика v1: лише журнал, без впливу на картки й теми", () => {
 	const now = 100 * C.DAY_MS;
 	const p = C.emptyProgress();
-	C.graduate(p, 1, 0);            // talo: overdue review, used right -> GOOD review
-	C.graduate(p, 2, now - 1000);   // koira: review not due, errors -> due now
-	C.setKnown(p, 3, true, now);    // vesi: known, right -> only counters
+	C.graduate(p, 1, 0);
+	const before = JSON.stringify(p.cards);
 	const s = C.applyPractice(p, C.parsePracticeResult(AI_ANSWER, COURSE), now, "2026-12-08");
-	assert.deepStrictEqual([s.words, s.reviewed, s.flagged, s.topics], [3, 1, 1, 2]);
-	assert.ok(p.cards[1].due > now && p.cards[1].last === now);
-	assert.strictEqual(p.cards[2].due, now);
-	assert.deepStrictEqual([p.cards[2].pr, p.cards[2].pe], [1, 2]);
-	assert.strictEqual(p.cards[3].st, "KNOWN");
-	assert.strictEqual(p.topics["case-ine"].score, 70);
+	assert.ok(s.legacy);
+	assert.strictEqual(JSON.stringify(p.cards), before);
+	assert.deepStrictEqual(p.topics, {});
 	assert.strictEqual(p.practice.length, 1);
-	assert.deepStrictEqual(C.dueReviewIds(p, now), [2]);
-	// second practice smooths the score instead of replacing it
-	C.applyPractice(p, { minutes: 10, mode: "", note: "", words: [], topics: [{ id: "case-ine", score: 100 }] }, now + 1, "2026-12-09");
-	assert.strictEqual(p.topics["case-ine"].score, 88);
-	assert.strictEqual(p.topics["case-ine"].n, 2);
+	assert.ok(p.practice[0].mode.includes("v1"));
+});
+
+const AI_V2 = "```plan-practice\nPRACTICE 2\nminutes: 20\nmode: мікс\n" +
+	"word: w1 | 2 | 0 | 0 | 0 | 0 | final=ok\n" +      // overdue review, clean -> GOOD
+	"word: w2 | 1 | 1 | 0 | 0 | 0 | final=ok\n" +      // overdue review, hint -> HARD
+	"word: w3 | 0 | 0 | 1 | 0 | 0 | final=ok\n" +      // review, only shown -> forgot
+	"word: w4 | 3 | 0 | 0 | 1 | 0 | final=-\n" +       // known, peeked once but also clean -> none
+	"word: W5 | 1 | 0 | 0 | 0 | 0 | final=fail\n" +    // failed final -> forgot (known)
+	"word: w99 | 1 | 0 | 0 | 0 | 0 | final=ok\n" +     // not in course -> ignored
+	"topic: case-ine | 6 | 1 | 0 | 0 | final=4/4\n" +
+	"topic: case-par | 2 | 3 | 1 | 1 | final=1/2\n" +
+	"note: ok\n```";
+const COURSE2 = { ...COURSE, has: id => id >= 1 && id <= 5 };
+
+test("практика v2: розбір лічильників, кодів і final", () => {
+	const r = C.parsePracticeResult(AI_V2, COURSE2);
+	assert.strictEqual(r.version, 2);
+	assert.deepStrictEqual(r.words.map(w => [w.id, w.clean, w.hint, w.shown, w.peek, w.wrong, w.final]),
+		[[1, 2, 0, 0, 0, 0, "ok"], [2, 1, 1, 0, 0, 0, "ok"], [3, 0, 0, 1, 0, 0, "ok"], [4, 3, 0, 0, 1, 0, null], [5, 1, 0, 0, 0, 0, "fail"], [null, 1, 0, 0, 0, 0, "ok"]]);
+	assert.deepStrictEqual(r.topics.map(t => [t.id, t.ok, t.wrong, t.hint, t.peek, t.fOk, t.fAll]),
+		[["case-ine", 6, 1, 0, 0, 4, 4], ["case-par", 2, 3, 1, 1, 1, 2]]);
+});
+
+test("практика v2: підглянуте не зараховується, провал повертає слово в роботу", () => {
+	const now = 100 * C.DAY_MS;
+	const p = C.emptyProgress();
+	C.graduate(p, 1, 0); C.graduate(p, 2, 0); C.graduate(p, 3, 0);
+	C.setKnown(p, 4, true, now); C.setKnown(p, 5, true, now);
+	const s1 = C.cardOf(p, 1).s;
+	const s = C.applyPractice(p, C.parsePracticeResult(AI_V2, COURSE2), now, "2026-12-08");
+	assert.deepStrictEqual([s.words, s.reviewed, s.forgot, s.flagged, s.topics], [5, 2, 2, 0, 2]);
+	assert.ok(p.cards[1].st === "REVIEW" && p.cards[1].s > s1 && p.cards[1].due > now);
+	assert.ok(p.cards[2].st === "REVIEW" && p.cards[2].s < p.cards[1].s, "HARD grows less than GOOD");
+	assert.strictEqual(p.cards[3].st, "MICRO");
+	assert.strictEqual(p.cards[3].lapses, 1);
+	assert.strictEqual(p.cards[4].st, "KNOWN");
+	assert.strictEqual(p.cards[5].st, "MICRO");
+	assert.deepStrictEqual([p.cards[3].pr, p.cards[3].pe], [0, 1]);
+	assert.strictEqual(C.practiceWordAction({ st: "REVIEW", due: 0 }, { clean: 0, hint: 0, shown: 0, peek: 1, wrong: 0, final: null }, now), "forgot");
+	assert.strictEqual(C.practiceWordAction({ st: "REVIEW", due: now + 1 }, { clean: 2, hint: 0, shown: 0, peek: 0, wrong: 0, final: "ok" }, now), "none");
+	assert.strictEqual(C.practiceWordAction({ st: "MICRO" }, { clean: 0, hint: 0, shown: 0, peek: 0, wrong: 2, final: null }, now), "flag");
+});
+
+test("теми: розклад 1→3→7→14→30, одна перемога на день, засвоєння за 3 дні через тиждень", () => {
+	const ok = { ok: 6, wrong: 1, hint: 0, peek: 0, fOk: 4, fAll: 4 };
+	const bad = { ok: 2, wrong: 3, hint: 1, peek: 1, fOk: 1, fAll: 2 };
+	let t = C.nextTopicState(undefined, ok, 0);
+	assert.deepStrictEqual([t.st, t.wins, t.iv, t.success], ["learning", 1, 3, true]);
+	assert.strictEqual(t.due, 3 * C.DAY_MS);
+	const again = C.nextTopicState(t, ok, 3600 * 1000);
+	assert.deepStrictEqual([again.wins, again.iv], [1, 3]);
+	t = C.nextTopicState(t, ok, 3 * C.DAY_MS);
+	assert.deepStrictEqual([t.st, t.wins, t.iv], ["learning", 2, 7]);
+	t = C.nextTopicState(t, ok, 5 * C.DAY_MS);
+	assert.deepStrictEqual([t.st, t.wins], ["learning", 3]);
+	t = C.nextTopicState(t, ok, 12 * C.DAY_MS);
+	assert.deepStrictEqual([t.st, t.wins, t.iv], ["mastered", 4, 30]);
+	const lost = C.nextTopicState(t, bad, 42 * C.DAY_MS);
+	assert.deepStrictEqual([lost.st, lost.wins, lost.iv, lost.success], ["learning", 0, 1, false]);
+	assert.strictEqual(C.nextTopicState(undefined, { ok: 2, wrong: 0, hint: 0, peek: 0, fOk: 2, fAll: 2 }, 0).success, false);
+});
+
+test("теми: старі оцінки ШІ мігрують у «вчу» з повтором зараз; засвоєні не рекомендуються до терміну", () => {
+	const old = { cards: {}, topics: { "case-ine": { score: 90, n: 1, last: 5000, u: 5000 } } };
+	const p = C.normalizeProgress(old);
+	assert.deepStrictEqual([p.topics["case-ine"].st, p.topics["case-ine"].due, p.topics["case-ine"].wins], ["learning", 5000, 0]);
+	const now = 10 * C.DAY_MS;
+	p.topics["case-par"] = { ...p.topics["case-ine"], st: "mastered", due: now + C.DAY_MS };
+	const rec = C.recommendTopics(p, COURSE.topics, new Map([["tense-past", 3]]), 3, now);
+	assert.deepStrictEqual(rec.map(t => t.id), ["case-ine", "tense-past"]);
+	assert.deepStrictEqual(C.levelStats(p, COURSE.topics, "A1"), { total: 2, mastered: 1, avg: 90 });
+	assert.strictEqual(C.topicStatus(p.topics["case-ine"], now).key, "due");
+	assert.strictEqual(C.topicStatus(p.topics["case-par"], now).key, "done");
 });
 
 test("практика: теми й журнал зливаються між пристроями і переживають збереження", () => {
 	const a = C.emptyProgress(), b = C.emptyProgress();
-	C.applyPractice(a, { minutes: 10, mode: "", note: "", words: [], topics: [{ id: "case-ine", score: 50 }] }, 1000, "d1");
-	C.applyPractice(b, { minutes: 10, mode: "", note: "", words: [], topics: [{ id: "case-ine", score: 90 }, { id: "case-par", score: 30 }] }, 2000, "d2");
+	const T = (id, ok) => ({ id, ok, wrong: 0, hint: 0, peek: 0, fOk: ok ? 3 : 0, fAll: 3 });
+	C.applyPractice(a, { version: 2, minutes: 10, mode: "", note: "", words: [], topics: [T("case-ine", 0)] }, 1000, "d1");
+	C.applyPractice(b, { version: 2, minutes: 10, mode: "", note: "", words: [], topics: [T("case-ine", 5), T("case-par", 4)] }, 2000, "d2");
 	const m = C.mergeProgress(a, b);
-	assert.strictEqual(m.topics["case-ine"].score, 90);
+	assert.strictEqual(m.topics["case-ine"].wins, 1);
 	assert.ok(m.topics["case-par"]);
 	assert.strictEqual(m.practice.length, 2);
 	const back = C.normalizeProgress(JSON.parse(C.progressToText(m)));
 	assert.strictEqual(back.practice.length, 2);
-	assert.strictEqual(back.topics["case-par"].score, 30);
+	assert.deepStrictEqual(back.topics["case-par"], m.topics["case-par"]);
 	assert.strictEqual(C.progressToText(back), C.progressToText(m));
 });
 
-test("практика: підбір слів і тем, промт з форматом результату", () => {
+test("практика: підбір слів і тем, промт без фінських слів і з форматом v2", () => {
 	const now = 50 * C.DAY_MS;
 	const p = C.emptyProgress();
-	C.graduate(p, 1, now - 2 * C.DAY_MS);   // recent, not due
-	C.graduate(p, 2, 0);                     // overdue
-	C.saveMicroLevel(p, 3, "L1", now);       // in work
-	C.setKnown(p, 4, true, now);             // known
-	p.cards[1].pe = 3;                        // mistakes earlier
+	C.graduate(p, 1, now - 2 * C.DAY_MS);
+	C.graduate(p, 2, 0);
+	C.saveMicroLevel(p, 3, "L1", now);
+	C.setKnown(p, 4, true, now);
+	p.cards[1].pe = 3;
 	assert.deepStrictEqual(C.selectPracticeWords(p, now, 3), [1, 2, 3]);
-	p.topics["case-par"] = { score: 40, n: 1, last: 0, u: 0 };
-	const rec = C.recommendTopics(p, COURSE.topics, new Map([["case-ine", 30], ["case-par", 5], ["tense-past", 50]]), 2);
-	assert.deepStrictEqual(rec.map(t => t.id), ["case-par", "case-ine"]);
-	assert.deepStrictEqual(C.levelStats(p, COURSE.topics, "A1"), { total: 2, mastered: 0, avg: 20 });
 	assert.strictEqual(C.learnedCount(p), 3);
-	const prompt = C.buildPracticePrompt({ learned: 3, goal: "A1", minutes: 15, mode: "talk", situation: "кафе", topics: [{ ...COURSE.topics[0], note: "у", table: [], score: 0, n: 0 }], words: [{ fi: "talo", tr: "будинок" }] });
-	assert.ok(prompt.includes("```plan-practice") && prompt.includes("talo — будинок") && prompt.includes("case-ine") && prompt.includes("кафе"));
-	// the format block of the prompt must be readable by the parser itself
-	const example = prompt.slice(prompt.indexOf("```plan-practice")).replace("<слово як у моєму списку> | <скільки разів я вжив правильно> | <скільки разів з помилкою>", "talo | 1 | 0");
-	assert.strictEqual(C.parsePracticeResult(example, COURSE).words[0].id, 1);
+	const prompt = C.buildPracticePrompt({ learned: 3, goal: "A1", minutes: 15, mode: "talk", situation: "кафе", topics: [{ ...COURSE.topics[0], note: "у", table: [], score: 0, n: 0 }], words: [{ id: 1, tr: "будинок", cat: "Дім" }] });
+	assert.ok(prompt.includes("```plan-practice") && prompt.includes("w1 — будинок (Дім)") && prompt.includes("case-ine") && prompt.includes("кафе"));
+	assert.ok(!/talo/i.test(prompt), "the Finnish word must not be in the prompt");
+	assert.ok(prompt.includes("«??»") && prompt.includes("«*»") && prompt.includes("PRACTICE 2"));
+	const block = prompt.slice(prompt.indexOf("```plan-practice"))
+		.replace(/word: <код>.*$/m, "word: w1 | 1 | 0 | 0 | 0 | 0 | final=ok")
+		.replace(/topic: <id теми>.*$/m, "topic: case-ine | 3 | 0 | 0 | 0 | final=2/2");
+	const r = C.parsePracticeResult(block, COURSE2);
+	assert.deepStrictEqual([r.version, r.words[0].id, r.words[0].final, r.topics[0].fAll], [2, 1, "ok", 2]);
+});
+
+test("повторення: види карток і оцінки", () => {
+	const seq = [0.1, 0.9, 0.2];
+	let i = 0;
+	const rnd = () => seq[i++ % seq.length];
+	assert.strictEqual(C.pickReviewKind(["type", "listen", "recall", "hear"], rnd), "type");
+	assert.ok(["listen", "recall", "hear"].includes(C.pickReviewKind(["type", "listen", "recall", "hear"], rnd)));
+	assert.strictEqual(C.pickReviewKind([], Math.random), "type");
+	assert.strictEqual(C.pickReviewKind(["recall"], Math.random), "recall");
+	assert.strictEqual(C.reviewRating("recall", true), C.RATING.HARD);
+	assert.strictEqual(C.reviewRating("hear", false), C.RATING.AGAIN);
+	assert.strictEqual(C.reviewRating("listen", C.RESULT.CLEAN), C.RATING.GOOD);
+	assert.strictEqual(C.reviewRating("type", C.RESULT.WITH_HINT), C.RATING.HARD);
+	assert.strictEqual(C.reviewRating("type", C.RESULT.PEEKED), C.RATING.AGAIN);
 });
 
 /* ---------- Text helpers ---------- */
